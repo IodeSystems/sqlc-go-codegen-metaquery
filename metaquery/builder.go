@@ -25,7 +25,7 @@ type Builder struct {
 	base    []any
 	selects []string
 	wheres  []Filter
-	groupBy []string
+	groupBy []groupByEntry
 	having  []Filter
 	aggs    []aggregate
 	orderBy []OrderBy
@@ -40,6 +40,15 @@ type aggregate struct {
 	expr   string
 	goType string // output Go type of the aggregate
 	dbType string // output DB type (best-effort)
+}
+
+type groupByEntry struct {
+	col    string // whitelisted column name (quoted in output)
+	expr   string // raw SQL expression with ? placeholders; mutually exclusive with col
+	args   []any  // bound args for expr placeholders
+	alias  string // output alias for expr-based entries
+	goType string // Go type for expr-based entries (used in OutputColumns)
+	dbType string // DB type for expr-based entries
 }
 
 // Wrap creates a Builder over q. baseArgs are the positional arguments for the
@@ -206,8 +215,22 @@ func (b *Builder) GroupBy(cols ...string) *Builder {
 			b.errs = append(b.errs, fmt.Errorf("metaquery: unknown column %q in GroupBy", c))
 			continue
 		}
-		b.groupBy = append(b.groupBy, c)
+		b.groupBy = append(b.groupBy, groupByEntry{col: c})
 	}
+	return b
+}
+
+// GroupByExpr appends a raw SQL expression to the GROUP BY clause. The result
+// is projected as `<expr> AS <alias>` in the SELECT and appears in
+// OutputColumns with the given goType. Use ? placeholders for bound args.
+// This is the escape hatch for grouping by computed expressions (e.g. JSON
+// field extraction: `GroupByExpr("group_value", "context_json->>?", "string", key)`).
+func (b *Builder) GroupByExpr(alias, expr, goType string, args ...any) *Builder {
+	if alias == "" || expr == "" {
+		b.errs = append(b.errs, errors.New("metaquery: GroupByExpr requires non-empty alias and expr"))
+		return b
+	}
+	b.groupBy = append(b.groupBy, groupByEntry{expr: expr, args: args, alias: alias, goType: goType, dbType: "text"})
 	return b
 }
 
@@ -281,6 +304,18 @@ func (b *Builder) lookupColumn(name string) *Column {
 	return nil
 }
 
+func (b *Builder) groupByNames() []string {
+	out := make([]string, len(b.groupBy))
+	for i, g := range b.groupBy {
+		if g.expr != "" {
+			out[i] = g.alias
+		} else {
+			out[i] = g.col
+		}
+	}
+	return out
+}
+
 func (b *Builder) addAgg(alias, expr, goType, dbType string, notNull bool) *Builder {
 	_ = notNull
 	b.aggs = append(b.aggs, aggregate{alias: alias, expr: expr, goType: goType, dbType: dbType})
@@ -295,10 +330,12 @@ func (b *Builder) OutputColumns() []Column {
 	if len(b.groupBy) > 0 || len(b.aggs) > 0 {
 		out := make([]Column, 0, len(b.groupBy)+len(b.aggs))
 		for _, g := range b.groupBy {
-			if c := b.lookupColumn(g); c != nil {
+			if g.expr != "" {
+				out = append(out, Column{Name: g.alias, GoType: g.goType, DBType: g.dbType})
+			} else if c := b.lookupColumn(g.col); c != nil {
 				out = append(out, *c)
 			} else {
-				out = append(out, Column{Name: g})
+				out = append(out, Column{Name: g.col})
 			}
 		}
 		for _, a := range b.aggs {
@@ -328,7 +365,7 @@ func (b *Builder) Meta() Meta {
 		Columns: b.OutputColumns(),
 		Where:   append([]Filter(nil), b.wheres...),
 		Having:  append([]Filter(nil), b.having...),
-		GroupBy: append([]string(nil), b.groupBy...),
+		GroupBy: b.groupByNames(),
 		OrderBy: append([]OrderBy(nil), b.orderBy...),
 	}
 	if b.limit != nil || b.offset != nil || b.total {
@@ -358,11 +395,14 @@ func (b *Builder) Build() (string, []any, error) {
 	sb.WriteString("WITH __q AS (\n")
 	sb.WriteString(b.q.SQL)
 	sb.WriteString("\n)\nSELECT ")
-	sb.WriteString(b.projection())
-	sb.WriteString(" FROM __q")
 
 	args := append([]any(nil), b.base...)
 	nextPos := len(args) + 1
+
+	proj, projArgs, nextPos := b.buildProjection(nextPos)
+	sb.WriteString(proj)
+	args = append(args, projArgs...)
+	sb.WriteString(" FROM __q")
 
 	if len(b.wheres) > 0 {
 		sb.WriteString(" WHERE ")
@@ -379,11 +419,15 @@ func (b *Builder) Build() (string, []any, error) {
 
 	if len(b.groupBy) > 0 {
 		sb.WriteString(" GROUP BY ")
-		for i, c := range b.groupBy {
+		for i, g := range b.groupBy {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(quoteIdent(c))
+			if g.expr != "" {
+				sb.WriteString(quoteIdent(g.alias))
+			} else {
+				sb.WriteString(quoteIdent(g.col))
+			}
 		}
 	}
 
@@ -463,14 +507,20 @@ func (b *Builder) BuildCount() (string, []any, error) {
 	if len(b.groupBy) > 0 {
 		// Count distinct groups: wrap the grouped projection in a subquery.
 		sb.WriteString("\nSELECT count(*) FROM (SELECT ")
-		sb.WriteString(b.projection())
+		proj, projArgs, _ := b.buildProjection(nextPos)
+		sb.WriteString(proj)
+		args = append(args, projArgs...)
 		sb.WriteString(filtered.String())
 		sb.WriteString(" GROUP BY ")
-		for i, c := range b.groupBy {
+		for i, g := range b.groupBy {
 			if i > 0 {
 				sb.WriteString(", ")
 			}
-			sb.WriteString(quoteIdent(c))
+			if g.expr != "" {
+				sb.WriteString(quoteIdent(g.alias))
+			} else {
+				sb.WriteString(quoteIdent(g.col))
+			}
 		}
 		if len(b.having) > 0 {
 			sb.WriteString(" HAVING ")
@@ -493,25 +543,34 @@ func (b *Builder) BuildCount() (string, []any, error) {
 	return sb.String(), args, nil
 }
 
-func (b *Builder) projection() string {
+func (b *Builder) buildProjection(startPos int) (string, []any, int) {
 	if len(b.groupBy) > 0 || len(b.aggs) > 0 {
 		parts := make([]string, 0, len(b.groupBy)+len(b.aggs))
-		for _, c := range b.groupBy {
-			parts = append(parts, quoteIdent(c))
+		var args []any
+		pos := startPos
+		for _, g := range b.groupBy {
+			if g.expr != "" {
+				expr, gargs, np := renumber(g.expr, g.args, pos)
+				parts = append(parts, expr+" AS "+quoteIdent(g.alias))
+				args = append(args, gargs...)
+				pos = np
+			} else {
+				parts = append(parts, quoteIdent(g.col))
+			}
 		}
 		for _, a := range b.aggs {
 			parts = append(parts, a.expr+" AS "+quoteIdent(a.alias))
 		}
-		return strings.Join(parts, ", ")
+		return strings.Join(parts, ", "), args, pos
 	}
 	if len(b.selects) > 0 {
 		parts := make([]string, len(b.selects))
 		for i, c := range b.selects {
 			parts[i] = quoteIdent(c)
 		}
-		return strings.Join(parts, ", ")
+		return strings.Join(parts, ", "), nil, startPos
 	}
-	return "*"
+	return "*", nil, startPos
 }
 
 // renderFilter produces a `col op $N` or raw expr with ? renumbered to $N+1..,

@@ -35,6 +35,11 @@ func renderMetaQueries(queries []Query, source string, options *opts.Options) st
 		if level >= emitCols {
 			renderMetaCols(&sb, q, options)
 		}
+		// Emit aggregation helpers from -- metaquery:agg annotations.
+		aggs := parseAggAnnotations(q)
+		for _, agg := range aggs {
+			renderAggHelper(&sb, q, agg, options)
+		}
 		sb.WriteByte('\n')
 	}
 	return sb.String()
@@ -399,4 +404,304 @@ func renderMetaArg(sb *strings.Builder, a metaArg) {
 		sb.WriteString(", IsSqlcSlice: true")
 	}
 	sb.WriteString("},\n")
+}
+
+// ── Aggregation annotations ──────────────────────────────────────────────────
+
+// aggAnnotation holds a parsed `-- metaquery:agg <Name> <ops...>` directive.
+type aggAnnotation struct {
+	Name string   // e.g. "CountedGrouped"
+	Ops  []aggOp  // ordered operations
+}
+
+type aggOp struct {
+	Kind  string // "group_by_expr", "group_by", "count", "sum", "max", "min", "avg"
+	Alias string // output column alias
+	Col   string // source column (for sum/max/min/avg)
+	Expr  string // raw SQL expr (for group_by_expr)
+	Type  string // Go type (for group_by_expr)
+}
+
+// parseAggAnnotations extracts all `-- metaquery:agg` directives from q.Comments.
+func parseAggAnnotations(q Query) []aggAnnotation {
+	var out []aggAnnotation
+	for _, c := range q.Comments {
+		s := strings.TrimSpace(c)
+		s = strings.TrimPrefix(s, "--")
+		s = strings.TrimSpace(s)
+		if !strings.HasPrefix(s, "metaquery:agg ") {
+			continue
+		}
+		s = strings.TrimPrefix(s, "metaquery:agg ")
+		agg := parseOneAgg(s)
+		if agg.Name != "" {
+			out = append(out, agg)
+		}
+	}
+	return out
+}
+
+// parseOneAgg parses: <Name> op(args) op(args) ...
+// Example: CountedGrouped group_by_expr(group_value, "context_json->>?", string) count(entry_count) max(max_value, value)
+func parseOneAgg(s string) aggAnnotation {
+	// First token is the name.
+	idx := strings.IndexByte(s, ' ')
+	if idx < 0 {
+		return aggAnnotation{Name: s}
+	}
+	agg := aggAnnotation{Name: s[:idx]}
+	rest := s[idx+1:]
+
+	// Parse op(args) tokens. Parens may contain quoted strings with commas.
+	for rest != "" {
+		rest = strings.TrimSpace(rest)
+		if rest == "" {
+			break
+		}
+		paren := strings.IndexByte(rest, '(')
+		if paren < 0 {
+			break
+		}
+		kind := rest[:paren]
+		close := findMatchingParen(rest, paren)
+		if close < 0 {
+			break
+		}
+		inner := rest[paren+1 : close]
+		rest = rest[close+1:]
+
+		op := aggOp{Kind: kind}
+		args := splitArgs(inner)
+		switch kind {
+		case "group_by_expr":
+			// group_by_expr(alias, expr, goType)
+			if len(args) >= 3 {
+				op.Alias = args[0]
+				op.Expr = args[1]
+				op.Type = args[2]
+			}
+		case "group_by":
+			// group_by(col)
+			if len(args) >= 1 {
+				op.Col = args[0]
+				op.Alias = args[0]
+			}
+		case "count":
+			// count(alias)
+			if len(args) >= 1 {
+				op.Alias = args[0]
+			}
+		case "sum", "max", "min", "avg":
+			// op(alias, col)
+			if len(args) >= 2 {
+				op.Alias = args[0]
+				op.Col = args[1]
+			}
+		}
+		agg.Ops = append(agg.Ops, op)
+	}
+	return agg
+}
+
+func findMatchingParen(s string, open int) int {
+	depth := 0
+	inQuote := false
+	for i := open; i < len(s); i++ {
+		switch s[i] {
+		case '"':
+			inQuote = !inQuote
+		case '(':
+			if !inQuote {
+				depth++
+			}
+		case ')':
+			if !inQuote {
+				depth--
+				if depth == 0 {
+					return i
+				}
+			}
+		}
+	}
+	return -1
+}
+
+// splitArgs splits on commas, respecting quoted strings. Trims whitespace and quotes.
+func splitArgs(s string) []string {
+	var out []string
+	var cur strings.Builder
+	inQuote := false
+	for _, ch := range s {
+		switch {
+		case ch == '"':
+			inQuote = !inQuote
+		case ch == ',' && !inQuote:
+			out = append(out, strings.TrimSpace(cur.String()))
+			cur.Reset()
+		default:
+			cur.WriteRune(ch)
+		}
+	}
+	if cur.Len() > 0 {
+		out = append(out, strings.TrimSpace(cur.String()))
+	}
+	return out
+}
+
+// renderAggHelper emits a typed struct + wrapper function for an aggregation annotation.
+func renderAggHelper(sb *strings.Builder, q Query, agg aggAnnotation, options *opts.Options) {
+	structName := q.MethodName + agg.Name + "Row"
+
+	// Determine struct fields from ops.
+	type field struct {
+		Name, GoType, DBTag string
+	}
+	var fields []field
+	var hasExprParam bool
+
+	for _, op := range agg.Ops {
+		switch op.Kind {
+		case "group_by_expr":
+			fields = append(fields, field{
+				Name:   StructName(op.Alias, options),
+				GoType: goTypeForAggType(op.Type),
+				DBTag:  op.Alias,
+			})
+			hasExprParam = true
+		case "group_by":
+			fields = append(fields, field{
+				Name:   StructName(op.Alias, options),
+				GoType: goTypeForColumn(q, op.Col),
+				DBTag:  op.Alias,
+			})
+		case "count":
+			fields = append(fields, field{
+				Name:   StructName(op.Alias, options),
+				GoType: "int64",
+				DBTag:  op.Alias,
+			})
+		case "sum":
+			fields = append(fields, field{
+				Name:   StructName(op.Alias, options),
+				GoType: sumTypeFor(goTypeForColumn(q, op.Col)),
+				DBTag:  op.Alias,
+			})
+		case "max", "min":
+			fields = append(fields, field{
+				Name:   StructName(op.Alias, options),
+				GoType: goTypeForColumn(q, op.Col),
+				DBTag:  op.Alias,
+			})
+		case "avg":
+			fields = append(fields, field{
+				Name:   StructName(op.Alias, options),
+				GoType: "float64",
+				DBTag:  op.Alias,
+			})
+		}
+	}
+
+	// Emit struct.
+	fmt.Fprintf(sb, "// %s is the scan target for %s aggregation on %s.\n", structName, agg.Name, q.MethodName)
+	fmt.Fprintf(sb, "type %s struct {\n", structName)
+	for _, f := range fields {
+		fmt.Fprintf(sb, "\t%s %s `db:\"%s\" json:\"%s\"`\n", f.Name, f.GoType, f.DBTag, f.DBTag)
+	}
+	sb.WriteString("}\n\n")
+
+	// Emit wrapper function.
+	// Params: same as base Wrap + optional expr params (e.g. groupKey string).
+	basePairs := q.Arg.Pairs()
+	var paramParts []string
+	for _, p := range basePairs {
+		paramParts = append(paramParts, p.Name+" "+p.Type)
+	}
+	if hasExprParam {
+		paramParts = append(paramParts, "groupKey string")
+	}
+	params := strings.Join(paramParts, ", ")
+
+	wrapName := "Wrap" + q.MethodName + agg.Name
+	fmt.Fprintf(sb, "// %s returns a Builder pre-configured with %s aggregation over %s.\n", wrapName, agg.Name, q.MethodName)
+	fmt.Fprintf(sb, "func %s(%s) *metaquery.Builder {\n", wrapName, params)
+
+	// Call the base Wrap.
+	var baseCallArgs []string
+	if q.Arg.Struct != nil {
+		for _, f := range q.Arg.Struct.Fields {
+			baseCallArgs = append(baseCallArgs, q.Arg.VariableForField(f))
+		}
+	} else if !q.Arg.isEmpty() {
+		baseCallArgs = append(baseCallArgs, q.Arg.Name)
+	}
+	if len(basePairs) > 1 || (len(basePairs) == 1 && q.Arg.Struct != nil) {
+		// Struct arg: pass the struct
+		fmt.Fprintf(sb, "\tb := Wrap%s(%s)\n", q.MethodName, basePairs[0].Name)
+	} else if len(basePairs) == 1 {
+		fmt.Fprintf(sb, "\tb := Wrap%s(%s)\n", q.MethodName, basePairs[0].Name)
+	} else {
+		fmt.Fprintf(sb, "\tb := Wrap%s()\n", q.MethodName)
+	}
+
+	// Chain ops.
+	for _, op := range agg.Ops {
+		switch op.Kind {
+		case "group_by_expr":
+			fmt.Fprintf(sb, "\tb.GroupByExpr(%q, %q, %q, groupKey)\n", op.Alias, op.Expr, op.Type)
+		case "group_by":
+			fmt.Fprintf(sb, "\tb.GroupBy(%q)\n", op.Col)
+		case "count":
+			fmt.Fprintf(sb, "\tb.Count(%q)\n", op.Alias)
+		case "sum":
+			fmt.Fprintf(sb, "\tb.Sum(%q, %q)\n", op.Alias, op.Col)
+		case "max":
+			fmt.Fprintf(sb, "\tb.Max(%q, %q)\n", op.Alias, op.Col)
+		case "min":
+			fmt.Fprintf(sb, "\tb.Min(%q, %q)\n", op.Alias, op.Col)
+		case "avg":
+			fmt.Fprintf(sb, "\tb.Avg(%q, %q)\n", op.Alias, op.Col)
+		}
+	}
+	sb.WriteString("\treturn b\n}\n")
+}
+
+func goTypeForAggType(t string) string {
+	switch t {
+	case "string":
+		return "string"
+	case "int32":
+		return "int32"
+	case "int64":
+		return "int64"
+	case "float64":
+		return "float64"
+	case "bool":
+		return "bool"
+	default:
+		return "string"
+	}
+}
+
+func goTypeForColumn(q Query, col string) string {
+	if q.Ret.Struct != nil {
+		for _, f := range q.Ret.Struct.Fields {
+			if f.DBName == col {
+				return f.Type
+			}
+		}
+	}
+	return "int32" // fallback
+}
+
+func sumTypeFor(goType string) string {
+	switch goType {
+	case "int32", "int16":
+		return "int64"
+	case "int64":
+		return "int64"
+	case "float32", "float64":
+		return "float64"
+	default:
+		return "int64"
+	}
 }

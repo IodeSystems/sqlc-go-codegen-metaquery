@@ -102,17 +102,21 @@ func (i *importer) Imports(filename string) [][]ImportSpec {
 		batchFileName = i.Options.OutputBatchFileName
 	}
 
-	switch filename {
-	case dbFileName:
+	switch {
+	case filename == dbFileName:
 		return mergeImports(i.dbImports())
-	case modelsFileName:
+	case filename == modelsFileName:
 		return mergeImports(i.modelImports())
-	case querierFileName:
+	case filename == querierFileName:
 		return mergeImports(i.interfaceImports())
-	case copyfromFileName:
+	case filename == copyfromFileName:
 		return mergeImports(i.copyfromImports())
-	case batchFileName:
+	case filename == batchFileName:
 		return mergeImports(i.batchImports())
+	case strings.HasSuffix(filename, ".metaquery"):
+		// Strip the .metaquery suffix to get the original source name.
+		source := strings.TrimSuffix(filename, ".metaquery")
+		return mergeImports(i.metaqueryImports(source))
 	default:
 		return mergeImports(i.queryImports(filename))
 	}
@@ -405,6 +409,35 @@ func (i *importer) queryImports(filename string) fileImports {
 	if i.Options.WrapErrors {
 		std["fmt"] = struct{}{}
 	}
+
+	return sortedImports(std, pkg)
+}
+
+func (i *importer) metaqueryImports(filename string) fileImports {
+	// The metaquery file's Wrap<Name>(...) functions reference the same arg
+	// types as the regular query methods. Scan those for import needs.
+	var gq []Query
+	for _, query := range i.Queries {
+		if query.SourceName == filename {
+			gq = append(gq, query)
+		}
+	}
+
+	std, pkg := buildImports(i.Options, nil, func(name string) bool {
+		for _, q := range gq {
+			if q.Arg.isEmpty() {
+				continue
+			}
+			for _, f := range q.Arg.Pairs() {
+				if hasPrefixIgnoringSliceAndPointerPrefix(f.Type, name) {
+					return true
+				}
+			}
+		}
+		return false
+	})
+
+	pkg[ImportSpec{Path: "github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"}] = struct{}{}
 
 	return sortedImports(std, pkg)
 }

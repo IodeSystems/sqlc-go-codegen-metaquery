@@ -9,9 +9,14 @@
 
 package {{.Package}}
 
+{{ if hasImports (printf "%s.metaquery" .SourceName) }}
 import (
-	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
+	{{range imports (printf "%s.metaquery" .SourceName)}}
+	{{range .}}{{.}}
+	{{end}}
+	{{end}}
 )
+{{end}}
 
 var _ = metaquery.Query{}
 
