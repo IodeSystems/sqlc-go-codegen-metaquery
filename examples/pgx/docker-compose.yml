@@ -1,0 +1,17 @@
+services:
+  db:
+    image: postgres:17
+    container_name: mqdemo-pg17
+    environment:
+      POSTGRES_USER: demo
+      POSTGRES_PASSWORD: demo
+      POSTGRES_DB: demo
+    ports:
+      - "5544:5432"
+    volumes:
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD", "pg_isready", "-U", "demo", "-d", "demo"]
+      interval: 1s
+      timeout: 3s
+      retries: 30

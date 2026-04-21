@@ -48,6 +48,11 @@ type Options struct {
 	BuildTags                    string            `json:"build_tags,omitempty" yaml:"build_tags"`
 	Initialisms                  *[]string         `json:"initialisms,omitempty" yaml:"initialisms"`
 
+	// EmitMetaquery controls the metaquery-fork emission level per query.
+	// Ladder (additive): "off" < "meta" < "wrap" < "cols" (default: "cols").
+	// Per-query override via a `-- metaquery: <level>` comment.
+	EmitMetaquery string `json:"emit_metaquery,omitempty" yaml:"emit_metaquery"`
+
 	InitialismsMap map[string]struct{} `json:"-" yaml:"-"`
 }
 
@@ -127,6 +132,10 @@ func parseOpts(req *plugin.GenerateRequest) (*Options, error) {
 		options.InitialismsMap[initial] = struct{}{}
 	}
 
+	if options.EmitMetaquery == "" {
+		options.EmitMetaquery = "cols"
+	}
+
 	return &options, nil
 }
 
@@ -152,6 +161,11 @@ func ValidateOpts(opts *Options) error {
 	}
 	if *opts.QueryParameterLimit < 0 {
 		return fmt.Errorf("invalid options: query parameter limit must not be negative")
+	}
+	switch opts.EmitMetaquery {
+	case "off", "meta", "wrap", "cols":
+	default:
+		return fmt.Errorf("invalid options: emit_metaquery must be one of off|meta|wrap|cols (got %q)", opts.EmitMetaquery)
 	}
 
 	return nil

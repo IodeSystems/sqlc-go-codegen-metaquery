@@ -1,4 +1,4 @@
-module github.com/sqlc-dev/sqlc-gen-go
+module github.com/iodesystems/sqlc-go-codegen-metaquery
 
 go 1.21.3
 

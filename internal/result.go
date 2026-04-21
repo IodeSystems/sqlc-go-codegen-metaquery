@@ -6,9 +6,9 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/sqlc-dev/sqlc-gen-go/internal/opts"
+	"github.com/iodesystems/sqlc-go-codegen-metaquery/internal/opts"
 	"github.com/sqlc-dev/plugin-sdk-go/sdk"
-	"github.com/sqlc-dev/sqlc-gen-go/internal/inflection"
+	"github.com/iodesystems/sqlc-go-codegen-metaquery/internal/inflection"
 	"github.com/sqlc-dev/plugin-sdk-go/metadata"
 	"github.com/sqlc-dev/plugin-sdk-go/plugin"
 )
@@ -96,9 +96,11 @@ func buildStructs(req *plugin.GenerateRequest, options *opts.Options) []Struct {
 				addExtraGoStructTags(tags, req, options, column)
 				s.Fields = append(s.Fields, Field{
 					Name:    StructName(column.Name, options),
+					DBName:  column.Name,
 					Type:    goType(req, options, column),
 					Tags:    tags,
 					Comment: column.Comment,
+					Column:  column,
 				})
 			}
 			structs = append(structs, s)

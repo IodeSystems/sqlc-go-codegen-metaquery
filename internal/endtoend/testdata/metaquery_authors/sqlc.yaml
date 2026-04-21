@@ -1,0 +1,15 @@
+version: '2'
+plugins:
+- name: metaquery
+  process:
+    cmd: ../../../../bin/sqlc-go-codegen-metaquery
+sql:
+- schema: schema.sql
+  queries: query.sql
+  engine: postgresql
+  codegen:
+  - plugin: metaquery
+    out: gen
+    options:
+      package: querytest
+      sql_package: pgx/v5

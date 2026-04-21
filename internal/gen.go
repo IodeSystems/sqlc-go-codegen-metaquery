@@ -10,7 +10,7 @@ import (
 	"strings"
 	"text/template"
 
-	"github.com/sqlc-dev/sqlc-gen-go/internal/opts"
+	"github.com/iodesystems/sqlc-go-codegen-metaquery/internal/opts"
 	"github.com/sqlc-dev/plugin-sdk-go/sdk"
 	"github.com/sqlc-dev/plugin-sdk-go/metadata"
 	"github.com/sqlc-dev/plugin-sdk-go/plugin"
@@ -223,6 +223,9 @@ func generate(req *plugin.GenerateRequest, options *opts.Options, enums []Enum, 
 		"emitPreparedQueries": tctx.codegenEmitPreparedQueries,
 		"queryMethod":         tctx.codegenQueryMethod,
 		"queryRetval":         tctx.codegenQueryRetval,
+		"renderMetaQueries": func(queries []Query, source string) string {
+			return renderMetaQueries(queries, source, options)
+		},
 	}
 
 	tmpl := template.Must(
@@ -316,8 +319,33 @@ func generate(req *plugin.GenerateRequest, options *opts.Options, enums []Enum, 
 		files[gq.SourceName] = struct{}{}
 	}
 
+	executeMetaquery := func(source string) error {
+		imports := i.Imports(source)
+		replacedQueries := replaceConflictedArg(imports, queries)
+
+		var b bytes.Buffer
+		w := bufio.NewWriter(&b)
+		tctx.SourceName = source
+		tctx.GoQueries = replacedQueries
+		if err := tmpl.ExecuteTemplate(w, "metaqueryFile", &tctx); err != nil {
+			return err
+		}
+		w.Flush()
+		code, err := format.Source(b.Bytes())
+		if err != nil {
+			fmt.Println(b.String())
+			return fmt.Errorf("metaquery source error: %w", err)
+		}
+		name := source + ".metaquery.go"
+		output[name] = string(code)
+		return nil
+	}
+
 	for source := range files {
 		if err := execute(source, "queryFile"); err != nil {
+			return nil, err
+		}
+		if err := executeMetaquery(source); err != nil {
 			return nil, err
 		}
 	}
