@@ -44,8 +44,16 @@ JSON-round-trippable for HTTP endpoints and admin consoles.
 
 ## Installation
 
-This repo is a standalone fork, not registered as a GitHub fork. Install
-from source:
+### Via WASM (recommended)
+
+<!-- release:begin -->
+
+*(Not yet published — run `make release VERSION=vX.Y.Z` to cut a release;
+this block is auto-rewritten with the download URL and sha256.)*
+
+<!-- release:end -->
+
+### From source
 
 ```sh
 git clone https://github.com/iodesystems/sqlc-go-codegen-metaquery.git
