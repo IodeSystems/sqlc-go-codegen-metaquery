@@ -48,8 +48,15 @@ JSON-round-trippable for HTTP endpoints and admin consoles.
 
 <!-- release:begin -->
 
-*(Not yet published — run `make release VERSION=vX.Y.Z` to cut a release;
-this block is auto-rewritten with the download URL and sha256.)*
+### Latest release — v0.1.0
+
+```yaml
+plugins:
+- name: metaquery
+  wasm:
+    url: https://github.com/IodeSystems/sqlc-go-codegen-metaquery/releases/download/v0.1.0/sqlc-go-codegen-metaquery.wasm
+    sha256: f8d79989e58225905fd42adaa2b55e055770ac0f9e46bcdfe028fafbd865a805
+```
 
 <!-- release:end -->
 
@@ -175,9 +182,6 @@ git merge upstream/main   # resolve conflicts in the three touched files
 
 - **Postgres + pgx/v5 only.** MySQL and SQLite aren't blocked by the runtime
   design but aren't implemented; the `mqpgx` adapter is pgx-specific.
-- **No WASM distribution yet.** Build the binary from source; if you need
-  WASM, `make all` produces one in `bin/`.
-- **No released versions yet.** Pin a commit sha or `main` for now.
 - **The builder wraps, never rewrites.** A filter references the *output*
   columns of the original query. If you need to filter on a column the
   query doesn't project, either widen the query or use `WhereExpr`.
