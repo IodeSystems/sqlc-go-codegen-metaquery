@@ -48,13 +48,13 @@ JSON-round-trippable for HTTP endpoints and admin consoles.
 
 <!-- release:begin -->
 
-### Latest release — v1.0.1
+### Latest release — v1.0.2
 
 ```yaml
 plugins:
 - name: metaquery
   wasm:
-    url: https://github.com/IodeSystems/sqlc-go-codegen-metaquery/releases/download/v1.0.1/sqlc-go-codegen-metaquery.wasm
+    url: https://github.com/IodeSystems/sqlc-go-codegen-metaquery/releases/download/v1.0.2/sqlc-go-codegen-metaquery.wasm
     sha256: 7b3ee4229b4a4d37666a822f9a076270932e3581b8c4023a9e817143cae8da99
 ```
 
