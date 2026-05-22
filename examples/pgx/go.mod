@@ -3,7 +3,7 @@ module github.com/iodesystems/sqlc-go-codegen-metaquery/examples/pgx
 go 1.25.0
 
 require (
-	github.com/iodesystems/sqlc-go-codegen-metaquery v0.0.0
+	github.com/iodesystems/sqlc-go-codegen-metaquery v1.1.1
 	github.com/jackc/pgx/v5 v5.9.2
 )
 
