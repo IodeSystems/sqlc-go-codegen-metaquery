@@ -3,7 +3,7 @@ module github.com/iodesystems/sqlc-go-codegen-metaquery/examples/sqlite
 go 1.25.0
 
 require (
-	github.com/iodesystems/sqlc-go-codegen-metaquery v0.0.0
+	github.com/iodesystems/sqlc-go-codegen-metaquery v1.1.0
 	modernc.org/sqlite v1.34.5
 )
 
