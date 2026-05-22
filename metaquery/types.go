@@ -7,12 +7,25 @@
 // the original SQL — the original is embedded verbatim as a CTE.
 package metaquery
 
+// Dialect selects the placeholder syntax the Builder emits for filters,
+// aggregations, and other appended SQL fragments. The zero value
+// (DialectPostgres) preserves prior behavior; DialectSQLite is required when
+// the wrapped query targets SQLite via database/sql, where Postgres-style $N
+// is not the conventional placeholder form.
+type Dialect string
+
+const (
+	DialectPostgres Dialect = ""
+	DialectSQLite   Dialect = "sqlite"
+)
+
 // Query is the per-query metadata emitted alongside sqlc's generated code.
 type Query struct {
 	Name    string   `json:"name"`
 	Cmd     string   `json:"cmd"`
 	SQL     string   `json:"sql"`
 	Source  string   `json:"source,omitempty"`
+	Dialect Dialect  `json:"dialect,omitempty"`
 	Columns []Column `json:"columns,omitempty"`
 	Args    []Arg    `json:"args,omitempty"`
 	Table   *Table   `json:"table,omitempty"`

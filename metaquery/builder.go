@@ -398,8 +398,9 @@ func (b *Builder) Build() (string, []any, error) {
 
 	args := append([]any(nil), b.base...)
 	nextPos := len(args) + 1
+	dialect := b.q.Dialect
 
-	proj, projArgs, nextPos := b.buildProjection(nextPos)
+	proj, projArgs, nextPos := b.buildProjection(nextPos, dialect)
 	sb.WriteString(proj)
 	args = append(args, projArgs...)
 	sb.WriteString(" FROM __q")
@@ -410,7 +411,7 @@ func (b *Builder) Build() (string, []any, error) {
 			if i > 0 {
 				sb.WriteString(" AND ")
 			}
-			expr, fargs, np := renderFilter(f, nextPos)
+			expr, fargs, np := renderFilter(f, nextPos, dialect)
 			sb.WriteString(expr)
 			args = append(args, fargs...)
 			nextPos = np
@@ -437,7 +438,7 @@ func (b *Builder) Build() (string, []any, error) {
 			if i > 0 {
 				sb.WriteString(" AND ")
 			}
-			expr, fargs, np := renderFilter(f, nextPos)
+			expr, fargs, np := renderFilter(f, nextPos, dialect)
 			sb.WriteString(expr)
 			args = append(args, fargs...)
 			nextPos = np
@@ -488,6 +489,7 @@ func (b *Builder) BuildCount() (string, []any, error) {
 
 	args := append([]any(nil), b.base...)
 	nextPos := len(args) + 1
+	dialect := b.q.Dialect
 
 	var filtered strings.Builder
 	filtered.WriteString(" FROM __q")
@@ -497,7 +499,7 @@ func (b *Builder) BuildCount() (string, []any, error) {
 			if i > 0 {
 				filtered.WriteString(" AND ")
 			}
-			expr, fargs, np := renderFilter(f, nextPos)
+			expr, fargs, np := renderFilter(f, nextPos, dialect)
 			filtered.WriteString(expr)
 			args = append(args, fargs...)
 			nextPos = np
@@ -507,7 +509,7 @@ func (b *Builder) BuildCount() (string, []any, error) {
 	if len(b.groupBy) > 0 {
 		// Count distinct groups: wrap the grouped projection in a subquery.
 		sb.WriteString("\nSELECT count(*) FROM (SELECT ")
-		proj, projArgs, _ := b.buildProjection(nextPos)
+		proj, projArgs, _ := b.buildProjection(nextPos, dialect)
 		sb.WriteString(proj)
 		args = append(args, projArgs...)
 		sb.WriteString(filtered.String())
@@ -528,7 +530,7 @@ func (b *Builder) BuildCount() (string, []any, error) {
 				if i > 0 {
 					sb.WriteString(" AND ")
 				}
-				expr, fargs, np := renderFilter(f, nextPos)
+				expr, fargs, np := renderFilter(f, nextPos, dialect)
 				sb.WriteString(expr)
 				args = append(args, fargs...)
 				nextPos = np
@@ -543,14 +545,14 @@ func (b *Builder) BuildCount() (string, []any, error) {
 	return sb.String(), args, nil
 }
 
-func (b *Builder) buildProjection(startPos int) (string, []any, int) {
+func (b *Builder) buildProjection(startPos int, dialect Dialect) (string, []any, int) {
 	if len(b.groupBy) > 0 || len(b.aggs) > 0 {
 		parts := make([]string, 0, len(b.groupBy)+len(b.aggs))
 		var args []any
 		pos := startPos
 		for _, g := range b.groupBy {
 			if g.expr != "" {
-				expr, gargs, np := renumber(g.expr, g.args, pos)
+				expr, gargs, np := renumber(g.expr, g.args, pos, dialect)
 				parts = append(parts, expr+" AS "+quoteIdent(g.alias))
 				args = append(args, gargs...)
 				pos = np
@@ -573,36 +575,46 @@ func (b *Builder) buildProjection(startPos int) (string, []any, int) {
 	return "*", nil, startPos
 }
 
-// renderFilter produces a `col op $N` or raw expr with ? renumbered to $N+1..,
-// and returns the args and the next free position. IS NULL / IS NOT NULL are
-// value-less and emit no placeholder.
-func renderFilter(f Filter, start int) (string, []any, int) {
+// renderFilter produces a `col op <ph>` or raw expr with ? renumbered to the
+// next free placeholder slot. IS NULL / IS NOT NULL are value-less and emit
+// no placeholder. The placeholder syntax (`$N` vs `?N`) is selected by
+// dialect. ILIKE is translated to LIKE for SQLite (no ILIKE; LIKE is
+// case-insensitive for ASCII by default).
+func renderFilter(f Filter, start int, dialect Dialect) (string, []any, int) {
 	if f.Expr != "" {
-		return renumber(f.Expr, f.Args, start)
+		return renumber(f.Expr, f.Args, start, dialect)
 	}
 	op := f.Op
 	if op == "" {
 		op = OpEq
 	}
+	if dialect == DialectSQLite && op == OpILike {
+		op = OpLike
+	}
 	if op == OpIsNull || op == OpIsNotNull {
 		return quoteIdent(f.Column) + " " + string(op), nil, start
 	}
-	expr, args, np := renumber("?", []any{f.Value}, start)
+	expr, args, np := renumber("?", []any{f.Value}, start, dialect)
 	return quoteIdent(f.Column) + " " + string(op) + " " + expr, args, np
 }
 
-// renumber rewrites ? placeholders in expr to $start, $start+1, ... Returns
-// the rewritten expr, the passed-through args, and the next free position.
-func renumber(expr string, args []any, start int) (string, []any, int) {
+// renumber rewrites ? placeholders in expr to the dialect's positional form
+// starting at `start`. For Postgres this emits `$N`; for SQLite it emits
+// `?N` (numbered) which coexists cleanly with sqlc's SQLite output.
+func renumber(expr string, args []any, start int, dialect Dialect) (string, []any, int) {
 	if !strings.ContainsRune(expr, '?') {
 		return expr, args, start
+	}
+	prefix := byte('$')
+	if dialect == DialectSQLite {
+		prefix = '?'
 	}
 	var sb strings.Builder
 	sb.Grow(len(expr) + 4*strings.Count(expr, "?"))
 	pos := start
 	for _, r := range expr {
 		if r == '?' {
-			sb.WriteByte('$')
+			sb.WriteByte(prefix)
 			sb.WriteString(strconv.Itoa(pos))
 			pos++
 			continue

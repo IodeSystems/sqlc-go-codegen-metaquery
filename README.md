@@ -6,9 +6,10 @@ that wraps any query as a CTE so you can compose filters, ordering,
 pagination, and aggregations dynamically — without ever modifying the
 original SQL.
 
-Built for **Go + Postgres + pgx/v5 + sqlc**. Drop-in compatible with stock
-sqlc-gen-go: the existing `q.ListAuthors(ctx)` methods are unchanged; the
-metaquery surface is purely additive.
+Built for **Go + sqlc**, with adapters for **Postgres + pgx/v5** and
+**SQLite + database/sql**. Drop-in compatible with stock sqlc-gen-go: the
+existing `q.ListAuthors(ctx)` methods are unchanged; the metaquery surface
+is purely additive.
 
 ```go
 // Your sqlc query:
@@ -28,7 +29,8 @@ res, _ := mqpgx.Scan[db.Author](ctx, conn,
 ```
 
 See [`examples/pgx/`](examples/pgx/) for a full runnable demo (docker-compose
-pg17, migrations, seed, JSON-output CLI).
+pg17, migrations, seed, JSON-output CLI), or [`examples/sqlite/`](examples/sqlite/)
+for the same demo against a local SQLite file (pure-Go driver, no Docker).
 
 ## Why use this
 
@@ -96,17 +98,28 @@ Then `sqlc generate` produces the usual `db/query.sql.go` + `db/models.go` +
 a new `db/query.sql.metaquery.go` carrying the per-query metadata and typed
 helpers.
 
-In your Go code, import the runtime:
+In your Go code, import the runtime and pick the adapter for your engine:
 
 ```go
+// Postgres + pgx/v5:
 import (
     "github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
     "github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/mqpgx"
 )
+
+// SQLite + database/sql:
+import (
+    "github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
+    "github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/mqsqlite"
+    _ "modernc.org/sqlite" // or any database/sql sqlite driver
+)
 ```
 
-The `mqpgx` adapter lives in a sibling Go module so users of the core
-`metaquery` package with a different driver aren't forced to pull in pgx.
+`mqsqlite` is driver-agnostic — it talks to `database/sql`, so it works with
+`modernc.org/sqlite` (pure Go), `mattn/go-sqlite3`, libsql, etc. The wrapped
+query's `Dialect` is set automatically by the codegen based on
+`engine: sqlite` in `sqlc.yaml`, and the builder emits `?N` placeholders to
+match.
 
 ## What it emits
 
@@ -180,8 +193,12 @@ git merge upstream/main   # resolve conflicts in the three touched files
 
 ## Caveats / non-goals
 
-- **Postgres + pgx/v5 only.** MySQL and SQLite aren't blocked by the runtime
-  design but aren't implemented; the `mqpgx` adapter is pgx-specific.
+- **Postgres (pgx/v5) and SQLite (database/sql) are supported.** MySQL isn't
+  blocked by the runtime design but doesn't yet have an adapter.
+- **`ILIKE` on SQLite** is auto-translated to `LIKE` at Build time. SQLite's
+  `LIKE` is case-insensitive for ASCII by default — same effective behavior
+  as Postgres `ILIKE` for typical text columns. For Unicode-aware
+  case-insensitive matching, use `WhereExpr` with `LOWER(...)`.
 - **The builder wraps, never rewrites.** A filter references the *output*
   columns of the original query. If you need to filter on a column the
   query doesn't project, either widen the query or use `WhereExpr`.

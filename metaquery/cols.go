@@ -1,6 +1,9 @@
 package metaquery
 
-import "time"
+import (
+	"strings"
+	"time"
+)
 
 // Column-reference kinds. Each kind carries a column name and exposes op
 // methods appropriate to its Go type. The plugin emits a
@@ -54,7 +57,11 @@ func (c TextCol) In(vs ...string) Filter {
 	if len(vs) == 0 {
 		return Filter{Expr: "FALSE"}
 	}
-	return Filter{Expr: quoteIdent(c.name) + " = ANY(?)", Args: []any{vs}}
+	args := make([]any, len(vs))
+	for i, v := range vs {
+		args[i] = v
+	}
+	return Filter{Expr: quoteIdent(c.name) + " IN (" + inPlaceholders(len(vs)) + ")", Args: args}
 }
 
 // IntCol wraps int/int16/int32/int64 and pgtype.Int2/4/8. Values are taken
@@ -75,7 +82,11 @@ func (c IntCol) In(vs ...int64) Filter {
 	if len(vs) == 0 {
 		return Filter{Expr: "FALSE"}
 	}
-	return Filter{Expr: quoteIdent(c.name) + " = ANY(?)", Args: []any{vs}}
+	args := make([]any, len(vs))
+	for i, v := range vs {
+		args[i] = v
+	}
+	return Filter{Expr: quoteIdent(c.name) + " IN (" + inPlaceholders(len(vs)) + ")", Args: args}
 }
 
 func (c IntCol) Between(lo, hi int64) Filter {
@@ -127,6 +138,15 @@ func NewBytesCol(name string) BytesCol { return BytesCol{baseCol{name}} }
 
 func (c BytesCol) Eq(v []byte) Filter { return Filter{Column: c.name, Op: OpEq, Value: v} }
 func (c BytesCol) Ne(v []byte) Filter { return Filter{Column: c.name, Op: OpNe, Value: v} }
+
+// inPlaceholders returns "?, ?, ?, ..." with n `?` slots. The Builder's
+// renumber pass rewrites each `?` into the dialect's positional placeholder.
+func inPlaceholders(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return strings.Repeat("?, ", n-1) + "?"
+}
 
 // AnyCol is the fallback for column kinds we don't have dedicated typing
 // for (arrays, enums, pgtype.UUID, pgtype.Numeric, domain types, ...). Ops

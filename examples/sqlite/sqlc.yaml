@@ -1,0 +1,20 @@
+version: '2'
+plugins:
+- name: metaquery
+  process:
+    cmd: ../../bin/sqlc-go-codegen-metaquery
+sql:
+- schema: migrations/001_schema.sql
+  queries: query.sql
+  engine: sqlite
+  codegen:
+  - plugin: metaquery
+    out: db
+    options:
+      package: db
+      sql_package: database/sql
+      emit_db_tags: true
+      emit_json_tags: true
+      # Per-query emission level. Ladder: off < meta < wrap < cols.
+      # Override per query with `-- metaquery: <level>` in a query comment.
+      emit_metaquery: cols

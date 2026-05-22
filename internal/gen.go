@@ -224,7 +224,7 @@ func generate(req *plugin.GenerateRequest, options *opts.Options, enums []Enum, 
 		"queryMethod":         tctx.codegenQueryMethod,
 		"queryRetval":         tctx.codegenQueryRetval,
 		"renderMetaQueries": func(queries []Query, source string) string {
-			return renderMetaQueries(queries, source, options)
+			return renderMetaQueries(queries, source, req.Settings.Engine, options)
 		},
 	}
 

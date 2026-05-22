@@ -17,8 +17,9 @@ import (
 //
 // options is threaded in via a closure (see gen.go) so StructName uses the
 // same initialisms/rename rules as the rest of the codegen.
-func renderMetaQueries(queries []Query, source string, options *opts.Options) string {
+func renderMetaQueries(queries []Query, source, engine string, options *opts.Options) string {
 	defaultLevel := levelValue(options.EmitMetaquery)
+	dialect := dialectForEngine(engine)
 	var sb strings.Builder
 	for _, q := range queries {
 		if q.SourceName != source {
@@ -28,7 +29,7 @@ func renderMetaQueries(queries []Query, source string, options *opts.Options) st
 		if level == emitOff {
 			continue
 		}
-		renderMetaQuery(&sb, q)
+		renderMetaQuery(&sb, q, dialect)
 		if level >= emitWrap && wrappableCmd(q.Cmd) {
 			renderMetaWrapper(&sb, q)
 		}
@@ -208,11 +209,26 @@ func wrapperPieces(q Query) (string, string) {
 	return params, strings.Join(callParts, ", ")
 }
 
-func renderMetaQuery(sb *strings.Builder, q Query) {
+// dialectForEngine maps a sqlc engine string to the metaquery Dialect token
+// rendered into the generated Meta<Name>. Empty string -> Postgres (zero
+// value, the implicit default for prior consumers).
+func dialectForEngine(engine string) string {
+	switch engine {
+	case "sqlite":
+		return "metaquery.DialectSQLite"
+	default:
+		return ""
+	}
+}
+
+func renderMetaQuery(sb *strings.Builder, q Query, dialect string) {
 	fmt.Fprintf(sb, "var Meta%s = metaquery.Query{\n", q.MethodName)
 	fmt.Fprintf(sb, "\tName: %q,\n", q.MethodName)
 	fmt.Fprintf(sb, "\tCmd: %q,\n", q.Cmd)
 	fmt.Fprintf(sb, "\tSource: %q,\n", q.SourceName)
+	if dialect != "" {
+		fmt.Fprintf(sb, "\tDialect: %s,\n", dialect)
+	}
 	sb.WriteString("\tSQL: `")
 	// backtick-escape: sqlc's SQL text may contain backticks in extension
 	// function bodies; replace them with concatenation

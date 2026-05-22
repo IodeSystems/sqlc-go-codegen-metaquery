@@ -416,3 +416,131 @@ func TestValidateFilter_RawExprPassthrough(t *testing.T) {
 		t.Fatalf("raw expr should pass: %v", err)
 	}
 }
+
+// ---- SQLite dialect ----
+
+var listAuthorsSQLite = &Query{
+	Name:    "ListAuthors",
+	Cmd:     ":many",
+	Dialect: DialectSQLite,
+	SQL:     "SELECT id, name, bio FROM authors ORDER BY name",
+	Columns: []Column{
+		{Name: "id", OriginalName: "id", GoType: "int64", DBType: "integer", NotNull: true},
+		{Name: "name", OriginalName: "name", GoType: "string", DBType: "text", NotNull: true},
+		{Name: "bio", OriginalName: "bio", GoType: "sql.NullString", DBType: "text"},
+	},
+}
+
+var getAuthorSQLite = &Query{
+	Name:    "GetAuthor",
+	Cmd:     ":one",
+	Dialect: DialectSQLite,
+	SQL:     "SELECT id, name, bio FROM authors WHERE id = ?1 LIMIT 1",
+	Columns: []Column{
+		{Name: "id", OriginalName: "id", GoType: "int64", DBType: "integer", NotNull: true},
+		{Name: "name", OriginalName: "name", GoType: "string", DBType: "text", NotNull: true},
+		{Name: "bio", OriginalName: "bio", GoType: "sql.NullString", DBType: "text"},
+	},
+	Args: []Arg{{Position: 1, GoType: "int64", DBType: "integer", NotNull: true}},
+}
+
+func TestBuilder_SQLite_WhereUsesQuestionMark(t *testing.T) {
+	sql, args, err := Wrap(listAuthorsSQLite).
+		Where("name", OpLike, "%foo%").
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 1 || args[0] != "%foo%" {
+		t.Fatalf("args = %v", args)
+	}
+	if !strings.Contains(sql, `"name" LIKE ?1`) {
+		t.Fatalf("expected SQLite-style ?1, got: %q", sql)
+	}
+	if strings.Contains(sql, "$1") {
+		t.Fatalf("SQLite output should not contain $N placeholders: %q", sql)
+	}
+}
+
+func TestBuilder_SQLite_RenumbersOverBaseArgs(t *testing.T) {
+	sql, args, err := Wrap(getAuthorSQLite, int64(42)).
+		Where("name", "=", "alice").
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 2 || args[0] != int64(42) || args[1] != "alice" {
+		t.Fatalf("args = %v", args)
+	}
+	// Original ?1 stays inside CTE; appended filter uses ?2.
+	if !strings.Contains(sql, "WHERE id = ?1") {
+		t.Fatalf("base ?1 should be preserved: %q", sql)
+	}
+	if !strings.Contains(sql, `"name" = ?2`) {
+		t.Fatalf("expected ?2 for appended arg, got: %q", sql)
+	}
+}
+
+func TestBuilder_SQLite_WhereExprRenumbers(t *testing.T) {
+	sql, args, err := Wrap(listAuthorsSQLite).
+		WhereExpr("name LIKE ? OR bio LIKE ?", "%a%", "%b%").
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 2 {
+		t.Fatalf("args = %v", args)
+	}
+	if !strings.Contains(sql, "name LIKE ?1 OR bio LIKE ?2") {
+		t.Fatalf("unexpected sql: %q", sql)
+	}
+}
+
+func TestBuilder_SQLite_ILikeTranslatesToLike(t *testing.T) {
+	sql, args, err := Wrap(listAuthorsSQLite).
+		ApplyFilter(NewTextCol("name").ILike("%foo%")).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 1 || args[0] != "%foo%" {
+		t.Fatalf("args = %v", args)
+	}
+	if !strings.Contains(sql, `"name" LIKE ?1`) {
+		t.Fatalf("expected LIKE for SQLite, got: %q", sql)
+	}
+	if strings.Contains(sql, "ILIKE") {
+		t.Fatalf("SQLite output should not contain ILIKE: %q", sql)
+	}
+}
+
+func TestBuilder_InEmitsPortableInList(t *testing.T) {
+	// Postgres dialect — `?` renumbers to `$N`, one slot per value.
+	sql, args, err := Wrap(listAuthors).
+		ApplyFilter(NewTextCol("name").In("ada", "alan", "grace")).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 3 || args[0] != "ada" || args[1] != "alan" || args[2] != "grace" {
+		t.Fatalf("args = %v", args)
+	}
+	if !strings.Contains(sql, `"name" IN ($1, $2, $3)`) {
+		t.Fatalf("expected portable IN list, got: %q", sql)
+	}
+}
+
+func TestBuilder_SQLite_InEmitsPortableInList(t *testing.T) {
+	sql, args, err := Wrap(listAuthorsSQLite).
+		ApplyFilter(NewIntCol("id").In(1, 2, 3)).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 3 {
+		t.Fatalf("args = %v", args)
+	}
+	if !strings.Contains(sql, `"id" IN (?1, ?2, ?3)`) {
+		t.Fatalf("expected portable IN list with SQLite placeholders, got: %q", sql)
+	}
+}
