@@ -2,5 +2,18 @@
   "$schema": "https://docs.renovatebot.com/renovate-schema.json",
   "extends": [
     "config:recommended"
+  ],
+  "packageRules": [
+    {
+      "description": "Self-references in examples/*/go.mod are overridden by replace ../.. directives — pinning at v0.0.0 and bumping only at release time. See scripts/release.sh.",
+      "matchFileNames": [
+        "examples/**/go.mod",
+        "examples/**/go.sum"
+      ],
+      "matchPackageNames": [
+        "github.com/iodesystems/sqlc-go-codegen-metaquery{/,}**"
+      ],
+      "enabled": false
+    }
   ]
 }

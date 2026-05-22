@@ -97,9 +97,23 @@ in_block { next }
 ' "$README" > "$README.new"
 mv "$README.new" "$README"
 
-info "done. README updated."
+# Rewrite self-references in examples/*/go.mod to the new version. These are
+# functionally overridden by `replace ... => ../..` for local builds, but
+# keeping them in sync with the released parent version is documentary and
+# avoids drift in consumer-visible files.
+SELF_PKG="github.com/iodesystems/sqlc-go-codegen-metaquery"
+for f in $(find "$ROOT/examples" -name go.mod -mindepth 2 -maxdepth 3 2>/dev/null); do
+    if grep -qE "^[[:space:]]+${SELF_PKG}[[:space:]]+v[0-9]" "$f"; then
+        info "updating $f self-ref → $VERSION"
+        # macOS/BSD sed lacks -i with no arg; use a backup file then drop it.
+        sed -i.bak -E "s|(${SELF_PKG})[[:space:]]+v[0-9][^[:space:]]*|\\1 ${VERSION}|" "$f"
+        rm -f "$f.bak"
+    fi
+done
+
+info "done. README + example go.mod files updated."
 echo
 echo "Next:"
-echo "  git add README.md"
+echo "  git add README.md examples/*/go.mod"
 echo "  git commit -m 'docs: release $VERSION'"
 echo "  git push"
