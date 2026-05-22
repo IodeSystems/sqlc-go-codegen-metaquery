@@ -47,7 +47,7 @@ func validateShape(t reflect.Type, cols []Column) error {
 		if !f.IsExported() {
 			continue
 		}
-		name := ColumnName(f)
+		name := FieldColumnName(f)
 		if name == "-" {
 			continue
 		}
@@ -77,13 +77,14 @@ func validateShape(t reflect.Type, cols []Column) error {
 	return fmt.Errorf("metaquery: Validate[%s] shape mismatch: %s", t.Name(), strings.Join(all, "; "))
 }
 
-// ColumnName returns the column name a struct field should match against
-// when scanning rows: the `db` tag if set, otherwise snake_case of the Go
-// name. A `db:"-"` tag is returned verbatim so callers can skip the field.
+// FieldColumnName returns the column name a struct field should match
+// against when scanning rows: the `db` tag if set, otherwise snake_case of
+// the Go name. A `db:"-"` tag is returned verbatim so callers can skip the
+// field.
 //
 // Exported so adapters (mqpgx, mqsqlite, future ones) and Validate share
 // one source of truth for the field-to-column convention.
-func ColumnName(f reflect.StructField) string {
+func FieldColumnName(f reflect.StructField) string {
 	if tag, ok := f.Tag.Lookup("db"); ok {
 		if comma := strings.IndexByte(tag, ','); comma >= 0 {
 			tag = tag[:comma]

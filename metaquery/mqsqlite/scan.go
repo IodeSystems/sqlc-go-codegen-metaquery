@@ -167,8 +167,8 @@ func scanRowInto[T any](rows *sql.Rows) (T, error) {
 }
 
 // buildFieldIndex maps column names (from `db` tag or snake_case of the Go
-// field name) to the field's index in t. Uses metaquery.ColumnName so Scan
-// and Validate agree on the name resolution.
+// field name) to the field's index in t. Uses metaquery.FieldColumnName so
+// Scan and Validate agree on the name resolution.
 func buildFieldIndex(t reflect.Type) map[string]int {
 	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
@@ -179,7 +179,7 @@ func buildFieldIndex(t reflect.Type) map[string]int {
 		if !f.IsExported() {
 			continue
 		}
-		name := metaquery.ColumnName(f)
+		name := metaquery.FieldColumnName(f)
 		if name == "-" {
 			continue
 		}
