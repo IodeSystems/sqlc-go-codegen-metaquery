@@ -4,7 +4,6 @@ go 1.25.0
 
 require (
 	github.com/iodesystems/sqlc-go-codegen-metaquery v0.0.0
-	github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/mqpgx v0.0.0
 	github.com/jackc/pgx/v5 v5.9.2
 )
 
@@ -14,7 +13,4 @@ require (
 	golang.org/x/text v0.29.0 // indirect
 )
 
-replace (
-	github.com/iodesystems/sqlc-go-codegen-metaquery => ../..
-	github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/mqpgx => ../../metaquery/mqpgx
-)
+replace github.com/iodesystems/sqlc-go-codegen-metaquery => ../..

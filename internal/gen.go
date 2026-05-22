@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"go/format"
+	"slices"
 	"strings"
 	"text/template"
 
@@ -371,11 +372,10 @@ func usesCopyFrom(queries []Query) bool {
 }
 
 func usesBatch(queries []Query) bool {
+	batchCmds := []string{metadata.CmdBatchExec, metadata.CmdBatchMany, metadata.CmdBatchOne}
 	for _, q := range queries {
-		for _, cmd := range []string{metadata.CmdBatchExec, metadata.CmdBatchMany, metadata.CmdBatchOne} {
-			if q.Cmd == cmd {
-				return true
-			}
+		if slices.Contains(batchCmds, q.Cmd) {
+			return true
 		}
 	}
 	return false

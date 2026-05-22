@@ -461,12 +461,11 @@ func parseAggAnnotations(q Query) []aggAnnotation {
 // Example: CountedGrouped group_by_expr(group_value, "context_json->>?", string) count(entry_count) max(max_value, value)
 func parseOneAgg(s string) aggAnnotation {
 	// First token is the name.
-	idx := strings.IndexByte(s, ' ')
-	if idx < 0 {
+	name, rest, ok := strings.Cut(s, " ")
+	if !ok {
 		return aggAnnotation{Name: s}
 	}
-	agg := aggAnnotation{Name: s[:idx]}
-	rest := s[idx+1:]
+	agg := aggAnnotation{Name: name}
 
 	// Parse op(args) tokens. Parens may contain quoted strings with commas.
 	for rest != "" {

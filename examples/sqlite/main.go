@@ -182,7 +182,7 @@ func runSeed(ctx context.Context, args []string) error {
 			return err
 		}
 		n := postsPerAuthor[a.Name]
-		for i := 0; i < n; i++ {
+		for i := range n {
 			if _, err := q.CreatePost(ctx, db.CreatePostParams{
 				AuthorID: a.ID,
 				Title:    fmt.Sprintf("%s — post %d", a.Name, i+1),

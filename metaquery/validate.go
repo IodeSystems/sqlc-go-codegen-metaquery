@@ -3,6 +3,7 @@ package metaquery
 import (
 	"fmt"
 	"reflect"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -24,7 +25,7 @@ func validateShape(t reflect.Type, cols []Column) error {
 	if t == nil {
 		return fmt.Errorf("metaquery: Validate[T] requires a concrete type")
 	}
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	if t.Kind() != reflect.Struct {
@@ -41,12 +42,12 @@ func validateShape(t reflect.Type, cols []Column) error {
 
 	fieldNames := make(map[string]struct{})
 	var fieldErrs []string
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		f := t.Field(i)
 		if !f.IsExported() {
 			continue
 		}
-		name := structFieldColumnName(f)
+		name := ColumnName(f)
 		if name == "-" {
 			continue
 		}
@@ -76,10 +77,13 @@ func validateShape(t reflect.Type, cols []Column) error {
 	return fmt.Errorf("metaquery: Validate[%s] shape mismatch: %s", t.Name(), strings.Join(all, "; "))
 }
 
-// structFieldColumnName returns the column name a field should match against:
-// `db` tag if set, otherwise snake_case of the Go name. A tag of "-" signals
-// to skip the field.
-func structFieldColumnName(f reflect.StructField) string {
+// ColumnName returns the column name a struct field should match against
+// when scanning rows: the `db` tag if set, otherwise snake_case of the Go
+// name. A `db:"-"` tag is returned verbatim so callers can skip the field.
+//
+// Exported so adapters (mqpgx, mqsqlite, future ones) and Validate share
+// one source of truth for the field-to-column convention.
+func ColumnName(f reflect.StructField) string {
 	if tag, ok := f.Tag.Lookup("db"); ok {
 		if comma := strings.IndexByte(tag, ','); comma >= 0 {
 			tag = tag[:comma]
@@ -130,13 +134,13 @@ func ValidateFilter(q *Query, f Filter) error {
 	if op == "" {
 		op = OpEq
 	}
-	if ops != nil && !containsOp(ops, op) {
+	if ops != nil && !slices.Contains(ops, op) {
 		return fmt.Errorf("metaquery: op %q not valid for column %q (%s/%s)", op, col.Name, col.GoType, kind)
 	}
 	if op == OpIsNull || op == OpIsNotNull {
 		return nil
 	}
-	return validateValue(kind, f.Value, col, op)
+	return validateValue(kind, f.Value, col)
 }
 
 func findColumn(q *Query, name string) *Column {
@@ -180,16 +184,7 @@ var allowedOps = map[string][]Op{
 	// "any" intentionally absent — unknown kind skips op checking.
 }
 
-func containsOp(ops []Op, op Op) bool {
-	for _, o := range ops {
-		if o == op {
-			return true
-		}
-	}
-	return false
-}
-
-func validateValue(kind string, val any, col *Column, op Op) error {
+func validateValue(kind string, val any, col *Column) error {
 	if val == nil {
 		return nil
 	}

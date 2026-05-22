@@ -13,8 +13,6 @@ import (
 	"database/sql"
 	"fmt"
 	"reflect"
-	"strings"
-	"unicode"
 
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
 )
@@ -169,49 +167,25 @@ func scanRowInto[T any](rows *sql.Rows) (T, error) {
 }
 
 // buildFieldIndex maps column names (from `db` tag or snake_case of the Go
-// field name) to the field's index in t. Mirrors validate.go's name
-// resolution so Scan and Validate agree on the mapping.
+// field name) to the field's index in t. Uses metaquery.ColumnName so Scan
+// and Validate agree on the name resolution.
 func buildFieldIndex(t reflect.Type) map[string]int {
-	for t.Kind() == reflect.Ptr {
+	for t.Kind() == reflect.Pointer {
 		t = t.Elem()
 	}
 	out := make(map[string]int, t.NumField())
-	for i := 0; i < t.NumField(); i++ {
+	for i := range t.NumField() {
 		f := t.Field(i)
 		if !f.IsExported() {
 			continue
 		}
-		name := fieldColumnName(f)
+		name := metaquery.ColumnName(f)
 		if name == "-" {
 			continue
 		}
 		out[name] = i
 	}
 	return out
-}
-
-func fieldColumnName(f reflect.StructField) string {
-	if tag, ok := f.Tag.Lookup("db"); ok {
-		if comma := strings.IndexByte(tag, ','); comma >= 0 {
-			tag = tag[:comma]
-		}
-		if tag != "" {
-			return tag
-		}
-	}
-	return toSnakeCase(f.Name)
-}
-
-func toSnakeCase(s string) string {
-	var sb strings.Builder
-	sb.Grow(len(s) + 4)
-	for i, r := range s {
-		if i > 0 && unicode.IsUpper(r) {
-			sb.WriteByte('_')
-		}
-		sb.WriteRune(unicode.ToLower(r))
-	}
-	return sb.String()
 }
 
 func populateTotal(ctx context.Context, q Queryer, b *metaquery.Builder, meta *metaquery.Meta) error {
