@@ -192,6 +192,23 @@ func TestIntegration_WildcardPrefix(t *testing.T) {
 	}
 }
 
+func TestIntegration_TargetableOperatorsUnderAllowlist(t *testing.T) {
+	db := openDB(t)
+	// Mirrors redline's region config: name free-text, score targeted-only with
+	// operators. Under the hard allowlist, score:>=90 still works (Targetable),
+	// while an unlisted column stays disabled.
+	cfg := dataset.Config{Searchable: []string{"name"}, Targetable: []string{"score"}}
+	res := run(t, db, dataset.Request{Search: "score:>=90"}, cfg)
+	if got := names(res.Data); len(got) != 2 {
+		t.Fatalf("score:>=90 under allowlist → %v", got)
+	}
+	// org_id not listed → not targetable → falls back to global search of "1".
+	res = run(t, db, dataset.Request{Search: "org_id:1"}, cfg)
+	if len(res.Data) != 0 {
+		t.Fatalf("org_id should be disabled under allowlist: %v", names(res.Data))
+	}
+}
+
 func TestIntegration_HardAllowlistNotTargetable(t *testing.T) {
 	db := openDB(t)
 	// org_id excluded from the allowlist: org_id:1 must not filter by org_id;
