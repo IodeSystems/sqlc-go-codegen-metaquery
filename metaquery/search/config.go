@@ -2,6 +2,7 @@ package search
 
 import (
 	"strconv"
+	"strings"
 
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
 )
@@ -53,9 +54,15 @@ type Config struct {
 
 // defaultFn returns the type-driven predicate for a column kind, or nil when
 // the kind isn't searchable by default (time/bytes/any — see plan phases).
-func defaultFn(kind string) Fn {
-	switch kind {
+func defaultFn(col metaquery.Column) Fn {
+	switch metaquery.ValueKind(col.GoType) {
 	case "text":
+		// Plain text → contains; specialized text-like types (enums, uuid,
+		// inet, ...) → exact match. Substring search makes no sense for those,
+		// and for enums it would wrongly match overlapping labels.
+		if isExactText(col.DBType) {
+			return EnumFn()
+		}
 		return func(c Col, v string) (*metaquery.Filter, error) { return c.Contains(v), nil }
 	case "int":
 		// Operator-aware: bare "5" => =5, ">5"/"<=9"/"5..9" understood.
@@ -75,6 +82,21 @@ func defaultFn(kind string) Fn {
 	}
 }
 
-// defaultGlobal reports whether a kind participates in unqualified terms by
-// default. Only text columns do.
-func defaultGlobal(kind string) bool { return kind == "text" }
+// defaultGlobal reports whether a column participates in unqualified terms by
+// default. Only plain text columns do — exact-match types (enums, etc.) are
+// targeted-only, since an unqualified free-text term exact-matching an enum is
+// rarely intended.
+func defaultGlobal(col metaquery.Column) bool {
+	return metaquery.ValueKind(col.GoType) == "text" && !isExactText(col.DBType)
+}
+
+// plainTextDBTypes are the DB types treated as free-text (contains-searchable).
+// Anything else with a string Go type is treated as an exact-match type.
+var plainTextDBTypes = map[string]bool{
+	"": true, "text": true, "varchar": true, "character varying": true,
+	"char": true, "character": true, "bpchar": true, "name": true, "citext": true,
+}
+
+func isExactText(dbType string) bool {
+	return !plainTextDBTypes[strings.ToLower(dbType)]
+}

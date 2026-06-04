@@ -215,9 +215,14 @@ retry (bounded, e.g. ≤1000). Return the corrected string as `rendered`
 1. ~~**MVP**: parser + targeting + text-contains + int/bool eq + AND/OR/NOT/group
    + searchRendered.~~ **DONE.** (alias targets + named virtual searches landed
    here too, ahead of schedule.)
-2. **Typed ops**: enum eq (`col = $::DBType`), per-column op overrides beyond the
-   defaults. (Per-column `Search` override + aliases already exist; remaining is
-   enum/`::DBType` defaulting.)
+2. ~~**Typed ops**: enum eq, per-column op overrides.~~ **DONE.** Text-kind
+   columns whose DBType isn't plain text (enums, uuid, inet, ...) default to
+   exact match and are targeted-only; plain text stays contains+global. Enum
+   match is the safe `col::text = $` (Postgres), not `$::enumtype` (which errors
+   on invalid input); SQLite uses plain `= $`. `EnumFn()` is exposed for enums
+   sqlc emits as a custom Go type (the "any" kind). Per-column overrides/aliases
+   already existed. Validated end-to-end (exact-match distinguishes 'active'
+   from 'inactive').
 3. ~~**Value operators**: comparison/range (`<`,`>`,`..`), prefix/wildcard.~~
    **DONE.** `operators.go`: `ParseValueOp` (primitive), `CompareFn` (comparison
    + range), `TimeFn` (date columns, unlocks the time kind), `WildcardFn` (glob

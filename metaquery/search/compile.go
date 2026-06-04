@@ -103,10 +103,9 @@ func newResolver(cols []metaquery.Column, cfg Config, d metaquery.Dialect) *reso
 		if fc.Disable {
 			continue
 		}
-		kind := metaquery.ValueKind(col.GoType)
 		fn := fc.Search
 		if fn == nil {
-			fn = defaultFn(kind)
+			fn = defaultFn(col)
 		}
 		if fn == nil {
 			continue // unsearchable kind, no override
@@ -117,7 +116,7 @@ func newResolver(cols []metaquery.Column, cfg Config, d metaquery.Dialect) *reso
 			r.targets[strings.ToLower(a)] = p
 		}
 
-		global := defaultGlobal(kind)
+		global := defaultGlobal(col)
 		switch fc.Scope {
 		case ScopeGlobal:
 			global = true

@@ -7,6 +7,12 @@
 // (case-insensitive contains) and exact-matches typed columns by target; the
 // Config only customizes overrides and virtual ("named") searches.
 //
+// Column kinds map to default predicates: plain text → contains (global);
+// int/float → comparison/range (targeted); enum and other specialized text-like
+// types (uuid, inet, ...) → exact match (targeted); bool → equality; time has
+// no default (use TimeFn). "Plain text" is text/varchar/char/name/citext; any
+// other DBType on a string column is treated as exact-match (see EnumFn).
+//
 // # Value operators
 //
 // Comparison, range, and wildcard operators are not part of the grammar — they

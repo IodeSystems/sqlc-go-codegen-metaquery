@@ -18,24 +18,27 @@ import (
 // wrapping, LIKE ... ESCAPE, count queries, struct scanning).
 
 type userRow struct {
-	ID    int64  `db:"id"`
-	Name  string `db:"name"`
-	Bio   string `db:"bio"`
-	OrgID int64  `db:"org_id"`
-	Score int64  `db:"score"`
+	ID     int64  `db:"id"`
+	Name   string `db:"name"`
+	Bio    string `db:"bio"`
+	OrgID  int64  `db:"org_id"`
+	Score  int64  `db:"score"`
+	Status string `db:"status"`
 }
 
 func usersQuery() *metaquery.Query {
 	return &metaquery.Query{
 		Name:    "ListUsers",
 		Dialect: metaquery.DialectSQLite,
-		SQL:     "SELECT id, name, bio, org_id, score FROM users",
+		SQL:     "SELECT id, name, bio, org_id, score, status FROM users",
 		Columns: []metaquery.Column{
 			{Name: "id", GoType: "int64", DBType: "integer", NotNull: true},
 			{Name: "name", GoType: "string", DBType: "text", NotNull: true},
 			{Name: "bio", GoType: "string", DBType: "text", NotNull: true},
 			{Name: "org_id", GoType: "int64", DBType: "integer", NotNull: true},
 			{Name: "score", GoType: "int64", DBType: "integer", NotNull: true},
+			// enum-like: non-plain DBType → exact match, targeted-only.
+			{Name: "status", GoType: "string", DBType: "user_status", NotNull: true},
 		},
 	}
 }
@@ -48,12 +51,12 @@ func openDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, bio TEXT, org_id INTEGER, score INTEGER)`,
-		`INSERT INTO users VALUES (1, 'Alice',        'admin user',      1,  90)`,
-		`INSERT INTO users VALUES (2, 'Bob',          'regular user',    1,  60)`,
-		`INSERT INTO users VALUES (3, 'Alice Cooper', 'musician',        2,  75)`,
-		`INSERT INTO users VALUES (4, 'Carol',        'alice''s friend', 2, 100)`,
-		`INSERT INTO users VALUES (5, '50% off',      'promo',           1,  50)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, bio TEXT, org_id INTEGER, score INTEGER, status TEXT)`,
+		`INSERT INTO users VALUES (1, 'Alice',        'admin user',      1,  90, 'active')`,
+		`INSERT INTO users VALUES (2, 'Bob',          'regular user',    1,  60, 'inactive')`,
+		`INSERT INTO users VALUES (3, 'Alice Cooper', 'musician',        2,  75, 'active')`,
+		`INSERT INTO users VALUES (4, 'Carol',        'alice''s friend', 2, 100, 'pending')`,
+		`INSERT INTO users VALUES (5, '50% off',      'promo',           1,  50, 'inactive')`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -206,6 +209,32 @@ func TestIntegration_TargetableOperatorsUnderAllowlist(t *testing.T) {
 	res = run(t, db, dataset.Request{Search: "org_id:1"}, cfg)
 	if len(res.Data) != 0 {
 		t.Fatalf("org_id should be disabled under allowlist: %v", names(res.Data))
+	}
+}
+
+func TestIntegration_EnumExactMatch(t *testing.T) {
+	db := openDB(t)
+	// status is enum-like (DBType user_status) → exact match, NOT contains.
+	// "active" must match only the 2 active rows, not the 2 'inactive' rows
+	// (which a substring search would wrongly catch).
+	res := run(t, db, dataset.Request{Search: "status:active"}, dataset.Config{})
+	if got := names(res.Data); len(got) != 2 {
+		t.Fatalf("status:active should exact-match 2 rows, got %v", got)
+	}
+	for _, r := range res.Data {
+		if r.Status != "active" {
+			t.Fatalf("exact match leaked %q", r.Status)
+		}
+	}
+}
+
+func TestIntegration_EnumNotGlobal(t *testing.T) {
+	db := openDB(t)
+	// Unqualified "active" must not hit the enum column (targeted-only); with no
+	// matching name/bio it returns nothing.
+	res := run(t, db, dataset.Request{Search: "active"}, dataset.Config{})
+	if len(res.Data) != 0 {
+		t.Fatalf("enum should be targeted-only, got %v", names(res.Data))
 	}
 }
 
