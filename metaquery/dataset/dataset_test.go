@@ -108,6 +108,18 @@ func TestShape_OrderableWhitelist(t *testing.T) {
 	}
 }
 
+func TestShape_OrderableCaseInsensitive(t *testing.T) {
+	b := metaquery.Wrap(sampleQuery())
+	req := Request{Ordering: []Order{{Field: "NAME", Order: "asc"}}}
+	if _, err := Shape(b, req, Config{Orderable: []string{"name"}}); err != nil {
+		t.Fatal(err)
+	}
+	sql, _, _ := b.Build()
+	if !strings.Contains(sql, `"name" ASC`) {
+		t.Fatalf("Orderable should match case-insensitively: %s", sql)
+	}
+}
+
 func TestShape_PartitionParseError(t *testing.T) {
 	// Partition compiles against columns; an int target with a bad value just
 	// drops (no error). Force an error path via a custom Fn that errors.

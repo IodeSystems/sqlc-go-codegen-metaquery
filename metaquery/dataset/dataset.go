@@ -132,6 +132,18 @@ func lowerSet(xs []string) map[string]bool {
 	return m
 }
 
+// lowerCanon maps lowercased names to their original (canonical) spelling.
+func lowerCanon(xs []string) map[string]string {
+	if len(xs) == 0 {
+		return nil
+	}
+	m := make(map[string]string, len(xs))
+	for _, x := range xs {
+		m[strings.ToLower(x)] = x
+	}
+	return m
+}
+
 func (c Config) defPageSize() int {
 	if c.DefaultPageSize > 0 {
 		return c.DefaultPageSize
@@ -168,22 +180,25 @@ func Shape(b *metaquery.Builder, req Request, cfg Config) (Rendered, error) {
 		r.Search = rs
 	}
 
-	var allow map[string]bool
-	if len(cfg.Orderable) > 0 {
-		allow = make(map[string]bool, len(cfg.Orderable))
-		for _, c := range cfg.Orderable {
-			allow[c] = true
-		}
-	}
+	// Case-insensitive Orderable allowlist (like the search allowlists). The map
+	// resolves a client field to the developer's canonical column name, so
+	// OrderBy (which whitelists case-sensitively against columns) gets the right
+	// casing. Empty Orderable = any field, passed through for OrderBy to vet.
+	canon := lowerCanon(cfg.Orderable)
 	for _, o := range req.Ordering {
-		if allow != nil && !allow[o.Field] {
-			continue
+		field := o.Field
+		if canon != nil {
+			c, ok := canon[strings.ToLower(o.Field)]
+			if !ok {
+				continue
+			}
+			field = c
 		}
 		dir := metaquery.Asc
 		if strings.EqualFold(o.Order, "DESC") {
 			dir = metaquery.Desc
 		}
-		b.OrderBy(o.Field, dir)
+		b.OrderBy(field, dir)
 	}
 
 	size := req.PageSize
