@@ -29,6 +29,20 @@ honored in the **targeted** branch too (dataset honors it only for global
 terms) — least-surprise. Unknown `field:` target falls back to a global value
 search (matches dataset's runtime, not the plan's earlier "literal" note).
 
+`metaquery/dataset/` — one-call DataSet pipeline over any select:
+
+- `Request` (search + partition + ordering + page) → `Shape(b, req, cfg)` applies
+  partition then search (both AND into WHERE), whitelisted ordering, clamped
+  pagination. Adapter-agnostic (no DB). `cfg` embeds `search.Config`.
+- `Run[T](ctx, b, req, cfg, scan)` shapes + scans via a `ScanFunc` closure (wrap
+  `mqpgx.Scan[T]`/`mqsqlite.Scan[T]`), returns `Response[T]{Data,Count,Meta,Rendered}`.
+- `RunWithPartitionCount[T]` adds the phase-4 two-pass: a partition-only builder
+  is counted for `count.inPartition` (excludes search); base `Run` mirrors
+  inPartition==inQuery until then.
+- This is the runtime helper redline2's `internal/dataset` placeholder adopts;
+  optional future codegen can emit a per-query `DataSet<Method>(req)` wrapper
+  around it. No sqlc change needed — the plugin already emits the metadata.
+
 Remaining: phases 2–4 below.
 
 ## Why this belongs in metaquery
