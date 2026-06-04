@@ -55,6 +55,15 @@ func (c Col) Contains(v string) *metaquery.Filter {
 	}
 }
 
+// Between builds `<col> BETWEEN ? AND ?` (inclusive), with lo and hi bound as
+// parameters.
+func (c Col) Between(lo, hi any) *metaquery.Filter {
+	return &metaquery.Filter{
+		Expr: quoteIdent(c.Column.Name) + " BETWEEN ? AND ?",
+		Args: []any{lo, hi},
+	}
+}
+
 // Expr builds a raw predicate with ? placeholders (renumbered at Build). This
 // is the escape hatch for virtual searches and computed predicates; the caller
 // owns its SQL safety, but values should still be passed as args, not inlined.

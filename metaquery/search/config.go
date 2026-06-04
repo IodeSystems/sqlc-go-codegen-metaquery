@@ -58,21 +58,10 @@ func defaultFn(kind string) Fn {
 	case "text":
 		return func(c Col, v string) (*metaquery.Filter, error) { return c.Contains(v), nil }
 	case "int":
-		return func(c Col, v string) (*metaquery.Filter, error) {
-			n, err := strconv.ParseInt(v, 10, 64)
-			if err != nil {
-				return nil, nil
-			}
-			return c.Eq(n), nil
-		}
+		// Operator-aware: bare "5" => =5, ">5"/"<=9"/"5..9" understood.
+		return CompareFn(coerceInt)
 	case "float":
-		return func(c Col, v string) (*metaquery.Filter, error) {
-			f, err := strconv.ParseFloat(v, 64)
-			if err != nil {
-				return nil, nil
-			}
-			return c.Eq(f), nil
-		}
+		return CompareFn(coerceFloat)
 	case "bool":
 		return func(c Col, v string) (*metaquery.Filter, error) {
 			b, err := strconv.ParseBool(v)

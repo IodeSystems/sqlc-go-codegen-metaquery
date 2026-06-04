@@ -218,9 +218,13 @@ retry (bounded, e.g. ≤1000). Return the corrected string as `rendered`
 2. **Typed ops**: enum eq (`col = $::DBType`), per-column op overrides beyond the
    defaults. (Per-column `Search` override + aliases already exist; remaining is
    enum/`::DBType` defaulting.)
-3. **Value operators**: comparison/range (`<`,`>`,`..`), prefix/wildcard parsed
-   *inside* the value by a column's `Search` Fn. Virtual search plumbing exists
-   (`Named`); this phase adds reusable value-operator coercers.
+3. ~~**Value operators**: comparison/range (`<`,`>`,`..`), prefix/wildcard.~~
+   **DONE.** `operators.go`: `ParseValueOp` (primitive), `CompareFn` (comparison
+   + range), `TimeFn` (date columns, unlocks the time kind), `WildcardFn` (glob
+   text + `=` exact), `Col.Between`. Numeric defaults are now operator-aware
+   (`score:>=90`, `score:10..99`) — strictly additive (bare value still `=`).
+   Validated end-to-end on SQLite. Note for redline: int/time columns must be in
+   `Targetable` (hard allowlist) to expose operators to clients.
 4. **Counts**: inPartition two-pass; column metadata in `DataSetResponse.columns`
    (searchable/orderable flags already derivable from metadata + Config).
 

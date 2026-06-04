@@ -8,6 +8,7 @@ import (
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/dataset"
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/mqsqlite"
+	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/search"
 	_ "modernc.org/sqlite"
 )
 
@@ -21,18 +22,20 @@ type userRow struct {
 	Name  string `db:"name"`
 	Bio   string `db:"bio"`
 	OrgID int64  `db:"org_id"`
+	Score int64  `db:"score"`
 }
 
 func usersQuery() *metaquery.Query {
 	return &metaquery.Query{
 		Name:    "ListUsers",
 		Dialect: metaquery.DialectSQLite,
-		SQL:     "SELECT id, name, bio, org_id FROM users",
+		SQL:     "SELECT id, name, bio, org_id, score FROM users",
 		Columns: []metaquery.Column{
 			{Name: "id", GoType: "int64", DBType: "integer", NotNull: true},
 			{Name: "name", GoType: "string", DBType: "text", NotNull: true},
 			{Name: "bio", GoType: "string", DBType: "text", NotNull: true},
 			{Name: "org_id", GoType: "int64", DBType: "integer", NotNull: true},
+			{Name: "score", GoType: "int64", DBType: "integer", NotNull: true},
 		},
 	}
 }
@@ -45,12 +48,12 @@ func openDB(t *testing.T) *sql.DB {
 	}
 	t.Cleanup(func() { db.Close() })
 	stmts := []string{
-		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, bio TEXT, org_id INTEGER)`,
-		`INSERT INTO users VALUES (1, 'Alice',        'admin user',     1)`,
-		`INSERT INTO users VALUES (2, 'Bob',          'regular user',   1)`,
-		`INSERT INTO users VALUES (3, 'Alice Cooper', 'musician',       2)`,
-		`INSERT INTO users VALUES (4, 'Carol',        'alice''s friend', 2)`,
-		`INSERT INTO users VALUES (5, '50% off',      'promo',          1)`,
+		`CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT, bio TEXT, org_id INTEGER, score INTEGER)`,
+		`INSERT INTO users VALUES (1, 'Alice',        'admin user',      1,  90)`,
+		`INSERT INTO users VALUES (2, 'Bob',          'regular user',    1,  60)`,
+		`INSERT INTO users VALUES (3, 'Alice Cooper', 'musician',        2,  75)`,
+		`INSERT INTO users VALUES (4, 'Carol',        'alice''s friend', 2, 100)`,
+		`INSERT INTO users VALUES (5, '50% off',      'promo',           1,  50)`,
 	}
 	for _, s := range stmts {
 		if _, err := db.Exec(s); err != nil {
@@ -150,6 +153,42 @@ func TestIntegration_LikeWildcardEscaped(t *testing.T) {
 	res := run(t, db, dataset.Request{Search: "50%"}, dataset.Config{})
 	if got := names(res.Data); len(got) != 1 || got[0] != "50% off" {
 		t.Fatalf("escaped %% search should match only '50%% off', got %v", got)
+	}
+}
+
+func TestIntegration_ValueComparison(t *testing.T) {
+	db := openDB(t)
+	// score >= 90 → Alice(90), Carol(100). Numeric defaults are operator-aware.
+	res := run(t, db, dataset.Request{Search: "score:>=90"}, dataset.Config{})
+	got := names(res.Data)
+	if len(got) != 2 {
+		t.Fatalf("score:>=90 → %v", got)
+	}
+}
+
+func TestIntegration_ValueRange(t *testing.T) {
+	db := openDB(t)
+	// score BETWEEN 60 AND 90 → Bob(60), Alice Cooper(75), Alice(90).
+	res := run(t, db, dataset.Request{Search: "score:60..90"}, dataset.Config{})
+	if got := names(res.Data); len(got) != 3 {
+		t.Fatalf("score:60..90 → %v", got)
+	}
+}
+
+func TestIntegration_WildcardPrefix(t *testing.T) {
+	db := openDB(t)
+	// name LIKE 'Alic%' → Alice, Alice Cooper (not Carol/Bob).
+	cfg := dataset.Config{}
+	cfg.Config.Fields = map[string]search.Field{"name": {Search: search.WildcardFn()}}
+	res := run(t, db, dataset.Request{Search: "name:Alic*"}, cfg)
+	got := names(res.Data)
+	if len(got) != 2 {
+		t.Fatalf("name:Alic* → %v", got)
+	}
+	for _, n := range got {
+		if n != "Alice" && n != "Alice Cooper" {
+			t.Fatalf("unexpected match: %v", got)
+		}
 	}
 }
 
