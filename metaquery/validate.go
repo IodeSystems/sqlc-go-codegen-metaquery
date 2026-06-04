@@ -153,6 +153,12 @@ func findColumn(q *Query, name string) *Column {
 	return nil
 }
 
+// ValueKind maps a sqlc-emitted GoType string to the coarse kind
+// ("text"/"int"/"float"/"bool"/"time"/"bytes"/"any") used for op validation.
+// Exposed so the search subpackage can derive type-driven default predicates
+// from the same source of truth that ValidateFilter enforces.
+func ValueKind(goType string) string { return valueKind(goType) }
+
 // valueKind maps a sqlc-emitted GoType string to a coarse kind used by both
 // ValidateFilter and the plugin's column-kind emission.
 func valueKind(goType string) string {

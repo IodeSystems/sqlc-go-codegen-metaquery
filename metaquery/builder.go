@@ -385,6 +385,10 @@ func (b *Builder) Meta() Meta {
 // WithTotal / ApplyPagination). Adapters use this to run a follow-up COUNT.
 func (b *Builder) WantsTotal() bool { return b.total }
 
+// Dialect reports the placeholder/SQL dialect of the wrapped query, so callers
+// (e.g. the search subpackage) can emit dialect-appropriate predicates.
+func (b *Builder) Dialect() Dialect { return b.q.Dialect }
+
 // Build assembles the final SQL and argument slice.
 func (b *Builder) Build() (string, []any, error) {
 	if len(b.errs) > 0 {
