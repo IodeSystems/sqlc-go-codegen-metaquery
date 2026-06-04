@@ -1,4 +1,4 @@
-.PHONY: build test release
+.PHONY: build test release antlr
 
 BIN_NAME = sqlc-go-codegen-metaquery
 # Overridable for release testing against a different repo.
@@ -20,6 +20,11 @@ bin/$(BIN_NAME).wasm: bin/$(BIN_NAME)
 
 bin:
 	mkdir -p bin
+
+# Regenerate the search Go parser from the shared grammar (ANTLR 4.13.2).
+# Run after editing metaquery/search/grammar/*.g4. Requires Java + ANTLR.
+antlr:
+	./scripts/antlr.sh
 
 # Publish a tagged release. Usage:
 #   make release VERSION=v0.2.0
