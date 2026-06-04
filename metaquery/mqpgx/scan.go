@@ -105,18 +105,29 @@ func collectValues(rows pgx.Rows) ([][]any, error) {
 	return out, rows.Err()
 }
 
-// populateTotal runs b.BuildCount() when the caller opted into WithTotal and
-// writes the result into meta.Pagination.Total.
+// Count runs b.BuildCount() and returns the row count. Useful for a
+// partition-only count pass (see metaquery/dataset.RunWithPartitionCount)
+// independent of WithTotal.
+func Count(ctx context.Context, q Queryer, b *metaquery.Builder) (int64, error) {
+	sql, args, err := b.BuildCount()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	if err := q.QueryRow(ctx, sql, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
+// populateTotal runs Count when the caller opted into WithTotal and writes the
+// result into meta.Pagination.Total.
 func populateTotal(ctx context.Context, q Queryer, b *metaquery.Builder, meta *metaquery.Meta) error {
 	if !b.WantsTotal() {
 		return nil
 	}
-	sql, args, err := b.BuildCount()
+	total, err := Count(ctx, q, b)
 	if err != nil {
-		return err
-	}
-	var total int64
-	if err := q.QueryRow(ctx, sql, args...).Scan(&total); err != nil {
 		return err
 	}
 	if meta.Pagination == nil {

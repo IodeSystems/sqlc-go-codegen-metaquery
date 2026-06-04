@@ -39,9 +39,19 @@ search (matches dataset's runtime, not the plan's earlier "literal" note).
 - `RunWithPartitionCount[T]` adds the phase-4 two-pass: a partition-only builder
   is counted for `count.inPartition` (excludes search); base `Run` mirrors
   inPartition==inQuery until then.
+- `Config.Searchable []string` mirrors redline's `FieldConfig.Searchable`: when
+  set, only those columns are global free-text; the rest are targeted-only
+  (explicit `Fields` entries win). The bridge that makes the redline2 swap a
+  drop-in.
+- `mqpgx.Count` / `mqsqlite.Count` expose a standalone `BuildCount` pass feeding
+  `RunWithPartitionCount`.
 - This is the runtime helper redline2's `internal/dataset` placeholder adopts;
   optional future codegen can emit a per-query `DataSet<Method>(req)` wrapper
   around it. No sqlc change needed — the plugin already emits the metadata.
+
+Free-text semantics change on adoption: the placeholder did one
+`ILIKE '%<whole string>%'`; the DSL tokenizes (`john smith` → AND of two ILIKE,
+`,` → OR, `field:val` → targeted), matching redline's original Kotlin behavior.
 
 Remaining: phases 2–4 below.
 

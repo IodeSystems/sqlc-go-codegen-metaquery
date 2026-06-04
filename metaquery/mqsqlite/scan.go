@@ -188,16 +188,26 @@ func buildFieldIndex(t reflect.Type) map[string]int {
 	return out
 }
 
+// Count runs b.BuildCount() and returns the row count, independent of
+// WithTotal (see metaquery/dataset.RunWithPartitionCount).
+func Count(ctx context.Context, q Queryer, b *metaquery.Builder) (int64, error) {
+	sqlText, args, err := b.BuildCount()
+	if err != nil {
+		return 0, err
+	}
+	var total int64
+	if err := q.QueryRowContext(ctx, sqlText, args...).Scan(&total); err != nil {
+		return 0, err
+	}
+	return total, nil
+}
+
 func populateTotal(ctx context.Context, q Queryer, b *metaquery.Builder, meta *metaquery.Meta) error {
 	if !b.WantsTotal() {
 		return nil
 	}
-	sqlText, args, err := b.BuildCount()
+	total, err := Count(ctx, q, b)
 	if err != nil {
-		return err
-	}
-	var total int64
-	if err := q.QueryRowContext(ctx, sqlText, args...).Scan(&total); err != nil {
 		return err
 	}
 	if meta.Pagination == nil {

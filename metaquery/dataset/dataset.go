@@ -20,6 +20,7 @@ package dataset
 import (
 	"context"
 	"fmt"
+	"maps"
 	"strings"
 
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
@@ -72,11 +73,45 @@ type Response[T any] struct {
 // (Fields, Named); the zero value is sensible. Orderable, when non-empty,
 // restricts which fields clients may sort by (OrderBy already whitelists
 // against output columns, so this is an additional policy layer).
+//
+// Searchable mirrors redline's FieldConfig.Searchable: when non-empty, only the
+// listed columns participate in unqualified ("global") free-text terms; every
+// other column becomes targeted-only (still reachable via field:value, but not
+// matched by a bare term). When empty, the type-driven default applies (all
+// text columns are global). Explicit per-column entries in search.Config.Fields
+// always win over this allowlist.
 type Config struct {
 	search.Config
+	Searchable      []string // global free-text columns; empty = all text columns
 	Orderable       []string // allowed sort fields; empty = any output column
 	DefaultPageSize int      // 0 -> 25
 	MaxPageSize     int      // 0 -> 200
+}
+
+// effectiveSearch folds the Searchable allowlist into a search.Config by
+// pinning each output column's Scope (global vs targeted), without mutating the
+// caller's Config. Columns with an explicit Fields entry are left untouched.
+func (c Config) effectiveSearch(cols []metaquery.Column) search.Config {
+	if len(c.Searchable) == 0 {
+		return c.Config
+	}
+	allow := make(map[string]bool, len(c.Searchable))
+	for _, s := range c.Searchable {
+		allow[strings.ToLower(s)] = true
+	}
+	fields := make(map[string]search.Field, len(cols))
+	maps.Copy(fields, c.Config.Fields)
+	for _, col := range cols {
+		if _, explicit := fields[col.Name]; explicit {
+			continue
+		}
+		f := search.Field{Scope: search.ScopeTargeted}
+		if allow[strings.ToLower(col.Name)] {
+			f.Scope = search.ScopeGlobal
+		}
+		fields[col.Name] = f
+	}
+	return search.Config{Fields: fields, Named: c.Config.Named}
 }
 
 func (c Config) defPageSize() int {
@@ -98,16 +133,17 @@ func (c Config) maxPgSize() int {
 // ShowCounts). It returns the normalized search/partition strings. No DB.
 func Shape(b *metaquery.Builder, req Request, cfg Config) (Rendered, error) {
 	var r Rendered
+	scfg := cfg.effectiveSearch(b.OutputColumns())
 
 	if s := strings.TrimSpace(req.Partition); s != "" {
-		rp, err := search.Apply(b, s, cfg.Config)
+		rp, err := search.Apply(b, s, scfg)
 		if err != nil {
 			return r, fmt.Errorf("dataset: partition: %w", err)
 		}
 		r.Partition = rp
 	}
 	if s := strings.TrimSpace(req.Search); s != "" {
-		rs, err := search.Apply(b, s, cfg.Config)
+		rs, err := search.Apply(b, s, scfg)
 		if err != nil {
 			return r, fmt.Errorf("dataset: search: %w", err)
 		}
@@ -199,7 +235,7 @@ func RunWithPartitionCount[T any](
 		return out, nil // no partition → InPartition already equals InQuery
 	}
 	pb := newBuilder()
-	if _, err := search.Apply(pb, req.Partition, cfg.Config); err != nil {
+	if _, err := search.Apply(pb, req.Partition, cfg.effectiveSearch(pb.OutputColumns())); err != nil {
 		return out, fmt.Errorf("dataset: partition count: %w", err)
 	}
 	n, err := count(ctx, pb)

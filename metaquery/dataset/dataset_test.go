@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery"
+	"github.com/iodesystems/sqlc-go-codegen-metaquery/metaquery/search"
 )
 
 type userView struct {
@@ -114,6 +115,50 @@ func TestShape_PartitionParseError(t *testing.T) {
 	_, err := Shape(b, Request{Search: "name:ok"}, Config{})
 	if err != nil {
 		t.Fatalf("valid search should not error: %v", err)
+	}
+}
+
+func TestShape_SearchableAllowlist(t *testing.T) {
+	// Only "name" is free-text searchable; "bio" (also text) must be excluded
+	// from an unqualified term.
+	b := metaquery.Wrap(sampleQuery())
+	if _, err := Shape(b, Request{Search: "john"}, Config{Searchable: []string{"name"}}); err != nil {
+		t.Fatal(err)
+	}
+	sql, _, _ := b.Build()
+	if !strings.Contains(sql, `"name" ILIKE`) {
+		t.Fatalf("name should search: %s", sql)
+	}
+	if strings.Contains(sql, `"bio" ILIKE`) {
+		t.Fatalf("bio not in Searchable, must be excluded from free-text: %s", sql)
+	}
+}
+
+func TestShape_SearchableStillTargetable(t *testing.T) {
+	// A column excluded from free-text is still reachable via field:value.
+	b := metaquery.Wrap(sampleQuery())
+	if _, err := Shape(b, Request{Search: "bio:hello"}, Config{Searchable: []string{"name"}}); err != nil {
+		t.Fatal(err)
+	}
+	sql, args, _ := b.Build()
+	if !strings.Contains(sql, `"bio" ILIKE`) || len(args) != 1 {
+		t.Fatalf("bio:hello should target bio: %s args=%v", sql, args)
+	}
+}
+
+func TestShape_SearchableExplicitFieldWins(t *testing.T) {
+	// An explicit Fields entry overrides the allowlist-derived scope.
+	b := metaquery.Wrap(sampleQuery())
+	cfg := Config{Searchable: []string{"name"}}
+	cfg.Config.Fields = map[string]search.Field{
+		"bio": {Scope: search.ScopeGlobal}, // force bio global despite allowlist
+	}
+	if _, err := Shape(b, Request{Search: "john"}, cfg); err != nil {
+		t.Fatal(err)
+	}
+	sql, _, _ := b.Build()
+	if !strings.Contains(sql, `"bio" ILIKE`) {
+		t.Fatalf("explicit ScopeGlobal on bio should win: %s", sql)
 	}
 }
 
