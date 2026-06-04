@@ -40,12 +40,13 @@ type Order struct {
 
 // Request mirrors redline's DataSetRequest. Page is 0-indexed.
 type Request struct {
-	Page       int     `json:"page,omitempty"`
-	PageSize   int     `json:"pageSize,omitempty"`
-	Ordering   []Order `json:"ordering,omitempty"`
-	Search     string  `json:"search,omitempty"`
-	Partition  string  `json:"partition,omitempty"`
-	ShowCounts bool    `json:"showCounts,omitempty"`
+	Page        int     `json:"page,omitempty"`
+	PageSize    int     `json:"pageSize,omitempty"`
+	Ordering    []Order `json:"ordering,omitempty"`
+	Search      string  `json:"search,omitempty"`
+	Partition   string  `json:"partition,omitempty"`
+	ShowCounts  bool    `json:"showCounts,omitempty"`
+	ShowColumns bool    `json:"showColumns,omitempty"`
 }
 
 // Count is the response count envelope (redline DataSetResponse.count).
@@ -65,10 +66,25 @@ type Rendered struct {
 // can be serialized straight to clients: it does NOT embed metaquery.Meta,
 // which carries compiled filter exprs and bound argument values (see Builder
 // .Meta() / the scan TypedResult if you need column/filter introspection).
+// Columns is populated only when Request.ShowColumns.
 type Response[T any] struct {
-	Data     []T      `json:"data"`
-	Count    *Count   `json:"count,omitempty"`
-	Rendered Rendered `json:"rendered"`
+	Data     []T          `json:"data"`
+	Count    *Count       `json:"count,omitempty"`
+	Rendered Rendered     `json:"rendered"`
+	Columns  []ColumnInfo `json:"columns,omitempty"`
+}
+
+// ColumnInfo describes one output column and its capabilities under the Config,
+// for clients that render columns/headers dynamically (redline
+// DataSetResponse.columns). Derived entirely from metadata + Config; no DB.
+type ColumnInfo struct {
+	Name       string `json:"name"`           // output column name (snake_case)
+	Title      string `json:"title"`          // humanized name ("org_id" → "Org Id")
+	Type       string `json:"type"`           // coarse kind: text/int/float/bool/time/...
+	Searchable bool   `json:"searchable"`     // reachable by search (global or field:value)
+	Global     bool   `json:"global"`         // matched by unqualified free-text terms
+	Orderable  bool   `json:"orderable"`      // client may sort by it
+	Sort       string `json:"sort,omitempty"` // "ASC"/"DESC" if currently sorted by this column
 }
 
 // Config drives shaping. The embedded search.Config customizes search/partition
@@ -242,7 +258,53 @@ func Run[T any](ctx context.Context, b *metaquery.Builder, req Request, cfg Conf
 			out.Count = &Count{InQuery: p.Total, InPartition: p.Total}
 		}
 	}
+	if req.ShowColumns {
+		out.Columns = describeColumns(b.OutputColumns(), cfg, req)
+	}
 	return out, nil
+}
+
+// describeColumns builds the per-column metadata for Request.ShowColumns,
+// deriving searchable/global from the effective search config, orderable from
+// the Orderable allowlist (empty = all), and the current sort direction from
+// the request. No DB.
+func describeColumns(cols []metaquery.Column, cfg Config, req Request) []ColumnInfo {
+	caps := search.Capabilities(cols, cfg.effectiveSearch(cols))
+	orderable := lowerSet(cfg.Orderable)
+	sorts := make(map[string]string, len(req.Ordering))
+	for _, o := range req.Ordering {
+		dir := "ASC"
+		if strings.EqualFold(o.Order, "DESC") {
+			dir = "DESC"
+		}
+		sorts[strings.ToLower(o.Field)] = dir
+	}
+	out := make([]ColumnInfo, 0, len(cols))
+	for _, c := range cols {
+		ca := caps[c.Name]
+		out = append(out, ColumnInfo{
+			Name:       c.Name,
+			Title:      humanize(c.Name),
+			Type:       metaquery.ValueKind(c.GoType),
+			Searchable: ca.Searchable,
+			Global:     ca.Global,
+			Orderable:  orderable == nil || orderable[strings.ToLower(c.Name)],
+			Sort:       sorts[strings.ToLower(c.Name)],
+		})
+	}
+	return out
+}
+
+// humanize turns a snake_case column name into a Title Case label
+// ("org_id" → "Org Id").
+func humanize(name string) string {
+	parts := strings.Split(name, "_")
+	for i, p := range parts {
+		if p != "" {
+			parts[i] = strings.ToUpper(p[:1]) + p[1:]
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 // CountFunc returns count(*) over a builder (its BuildCount query). Satisfied

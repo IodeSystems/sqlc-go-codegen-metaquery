@@ -230,8 +230,13 @@ retry (bounded, e.g. ≤1000). Return the corrected string as `rendered`
    (`score:>=90`, `score:10..99`) — strictly additive (bare value still `=`).
    Validated end-to-end on SQLite. Note for redline: int/time columns must be in
    `Targetable` (hard allowlist) to expose operators to clients.
-4. **Counts**: inPartition two-pass; column metadata in `DataSetResponse.columns`
-   (searchable/orderable flags already derivable from metadata + Config).
+4. ~~**Counts**: inPartition two-pass; column metadata in `DataSetResponse.columns`.~~
+   **DONE.** inPartition two-pass shipped earlier (`RunWithPartitionCount`).
+   Columns metadata: `Response.Columns []ColumnInfo` populated when
+   `Request.ShowColumns` — name, humanized title, coarse type, searchable,
+   global, orderable, current sort. Derived from metadata + Config (no DB) via
+   `search.Capabilities` (reuses the compiler's resolution). redline shim not
+   wired (UI hardcodes columns today); available when the UI adopts it.
 
 ## SQL safety
 

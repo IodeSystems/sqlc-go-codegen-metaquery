@@ -74,6 +74,21 @@ func compile(terms []Term, cols []metaquery.Column, cfg Config, d metaquery.Dial
 type resolver struct {
 	targets map[string]provider
 	globals []provider
+	caps    map[string]Capability // by column Name; only searchable columns present
+}
+
+// Capability describes how a column participates in search under a Config.
+type Capability struct {
+	Searchable bool // reachable by search (global term or field:value)
+	Global     bool // matched by unqualified (free-text) terms
+}
+
+// Capabilities reports per-column search capability for cols under cfg, reusing
+// the exact resolution the compiler uses. Columns that aren't searchable are
+// absent from the map (look up yields the zero Capability). Named/virtual
+// targets are not columns and are not included.
+func Capabilities(cols []metaquery.Column, cfg Config) map[string]Capability {
+	return newResolver(cols, cfg, metaquery.DialectPostgres).caps
 }
 
 type provider struct {
@@ -96,7 +111,7 @@ func (p provider) run(value string) (*cond, bool, error) {
 }
 
 func newResolver(cols []metaquery.Column, cfg Config, d metaquery.Dialect) *resolver {
-	r := &resolver{targets: make(map[string]provider)}
+	r := &resolver{targets: make(map[string]provider), caps: make(map[string]Capability)}
 
 	for _, col := range cols {
 		fc := cfg.Fields[col.Name]
@@ -126,6 +141,7 @@ func newResolver(cols []metaquery.Column, cfg Config, d metaquery.Dialect) *reso
 		if global {
 			r.globals = append(r.globals, p)
 		}
+		r.caps[col.Name] = Capability{Searchable: true, Global: global}
 	}
 
 	for name, n := range cfg.Named {

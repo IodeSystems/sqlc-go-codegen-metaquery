@@ -238,6 +238,38 @@ func TestIntegration_EnumNotGlobal(t *testing.T) {
 	}
 }
 
+func TestIntegration_ShowColumns(t *testing.T) {
+	db := openDB(t)
+	res := run(t, db, dataset.Request{ShowColumns: true}, dataset.Config{
+		Searchable: []string{"name", "bio"},
+		Targetable: []string{"score"},
+		Orderable:  []string{"name", "score"},
+	})
+	by := map[string]dataset.ColumnInfo{}
+	for _, c := range res.Columns {
+		by[c.Name] = c
+	}
+	if len(by) != 6 {
+		t.Fatalf("want 6 columns, got %d", len(by))
+	}
+	// name: free-text searchable + global + orderable.
+	if n := by["name"]; !n.Searchable || !n.Global || !n.Orderable {
+		t.Fatalf("name: %+v", n)
+	}
+	// score: targeted-only (searchable, not global), orderable.
+	if s := by["score"]; !s.Searchable || s.Global || !s.Orderable || s.Type != "int" {
+		t.Fatalf("score: %+v", s)
+	}
+	// status: enum, not in allowlist → not searchable; not orderable.
+	if st := by["status"]; st.Searchable || st.Orderable {
+		t.Fatalf("status: %+v", st)
+	}
+	// org_id: not listed → not searchable.
+	if by["org_id"].Searchable {
+		t.Fatalf("org_id should be non-searchable: %+v", by["org_id"])
+	}
+}
+
 func TestIntegration_HardAllowlistNotTargetable(t *testing.T) {
 	db := openDB(t)
 	// org_id excluded from the allowlist: org_id:1 must not filter by org_id;

@@ -247,6 +247,75 @@ func TestRun_EmptyDataNonNil(t *testing.T) {
 	}
 }
 
+func TestRun_ShowColumns(t *testing.T) {
+	b := metaquery.Wrap(sampleQuery()) // id int, name/bio text, is_admin bool
+	scan := func(_ context.Context, b *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
+		return &metaquery.TypedResult[userView]{Meta: b.Meta()}, nil
+	}
+	req := Request{ShowColumns: true, Ordering: []Order{{Field: "name", Order: "DESC"}}}
+	out, err := Run(context.Background(), b, req, Config{Orderable: []string{"name"}}, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out.Columns) != 4 {
+		t.Fatalf("want 4 columns, got %d", len(out.Columns))
+	}
+	by := map[string]ColumnInfo{}
+	for _, c := range out.Columns {
+		by[c.Name] = c
+	}
+	// name: plain text → searchable + global; in Orderable + sorted DESC.
+	if n := by["name"]; !n.Searchable || !n.Global || !n.Orderable || n.Sort != "DESC" ||
+		n.Title != "Name" || n.Type != "text" {
+		t.Fatalf("name: %+v", n)
+	}
+	// is_admin: bool → searchable but targeted-only; not orderable; humanized.
+	if a := by["is_admin"]; !a.Searchable || a.Global || a.Orderable || a.Title != "Is Admin" || a.Type != "bool" {
+		t.Fatalf("is_admin: %+v", a)
+	}
+	// bio: text global but not in Orderable.
+	if bi := by["bio"]; !bi.Global || bi.Orderable {
+		t.Fatalf("bio: %+v", bi)
+	}
+}
+
+func TestRun_ShowColumnsRespectsAllowlist(t *testing.T) {
+	b := metaquery.Wrap(sampleQuery())
+	scan := func(_ context.Context, b *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
+		return &metaquery.TypedResult[userView]{Meta: b.Meta()}, nil
+	}
+	// Hard allowlist: only name searchable; bio must report Searchable=false.
+	out, err := Run(context.Background(), b, Request{ShowColumns: true},
+		Config{Searchable: []string{"name"}}, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	by := map[string]ColumnInfo{}
+	for _, c := range out.Columns {
+		by[c.Name] = c
+	}
+	if !by["name"].Searchable || !by["name"].Global {
+		t.Fatalf("name: %+v", by["name"])
+	}
+	if by["bio"].Searchable {
+		t.Fatalf("bio should be non-searchable under allowlist: %+v", by["bio"])
+	}
+}
+
+func TestRun_NoColumnsWithoutFlag(t *testing.T) {
+	b := metaquery.Wrap(sampleQuery())
+	scan := func(_ context.Context, _ *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
+		return &metaquery.TypedResult[userView]{}, nil
+	}
+	out, err := Run(context.Background(), b, Request{}, Config{}, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Columns != nil {
+		t.Fatalf("columns should be nil without ShowColumns: %v", out.Columns)
+	}
+}
+
 func TestRunWithPartitionCount(t *testing.T) {
 	newB := func() *metaquery.Builder { return metaquery.Wrap(sampleQuery()) }
 	scan := func(_ context.Context, b *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
