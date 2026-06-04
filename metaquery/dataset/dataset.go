@@ -61,12 +61,14 @@ type Rendered struct {
 	Partition string `json:"partition,omitempty"`
 }
 
-// Response mirrors redline's DataSetResponse[T].
+// Response mirrors redline's DataSetResponse[T]. It is intentionally lean so it
+// can be serialized straight to clients: it does NOT embed metaquery.Meta,
+// which carries compiled filter exprs and bound argument values (see Builder
+// .Meta() / the scan TypedResult if you need column/filter introspection).
 type Response[T any] struct {
-	Data     []T            `json:"data"`
-	Count    *Count         `json:"count,omitempty"`
-	Meta     metaquery.Meta `json:"meta"`
-	Rendered Rendered       `json:"rendered"`
+	Data     []T      `json:"data"`
+	Count    *Count   `json:"count,omitempty"`
+	Rendered Rendered `json:"rendered"`
 }
 
 // Config drives shaping. The embedded search.Config customizes search/partition
@@ -74,44 +76,60 @@ type Response[T any] struct {
 // restricts which fields clients may sort by (OrderBy already whitelists
 // against output columns, so this is an additional policy layer).
 //
-// Searchable mirrors redline's FieldConfig.Searchable: when non-empty, only the
-// listed columns participate in unqualified ("global") free-text terms; every
-// other column becomes targeted-only (still reachable via field:value, but not
-// matched by a bare term). When empty, the type-driven default applies (all
-// text columns are global). Explicit per-column entries in search.Config.Fields
-// always win over this allowlist.
+// Searchable / Targetable mirror redline's per-field search config. When either
+// is non-empty they form a HARD allowlist: columns in Searchable are global
+// free-text + targetable; columns in Targetable are targeted-only (field:value,
+// like redline's search(global=false)); every other column is NOT searchable by
+// any path. This matches redline, where a field with no search config is not
+// searchable. When both are empty, the type-driven default applies (all text
+// columns global). Explicit per-column entries in search.Config.Fields always
+// win over the allowlist. Names are matched case-insensitively.
 type Config struct {
 	search.Config
-	Searchable      []string // global free-text columns; empty = all text columns
+	Searchable      []string // global free-text + targetable; empty+Targetable empty = type default
+	Targetable      []string // targeted-only (field:value), not matched by bare terms
 	Orderable       []string // allowed sort fields; empty = any output column
 	DefaultPageSize int      // 0 -> 25
 	MaxPageSize     int      // 0 -> 200
 }
 
-// effectiveSearch folds the Searchable allowlist into a search.Config by
-// pinning each output column's Scope (global vs targeted), without mutating the
-// caller's Config. Columns with an explicit Fields entry are left untouched.
+// effectiveSearch folds the Searchable/Targetable allowlists into a
+// search.Config, without mutating the caller's Config. A non-empty allowlist is
+// hard: unlisted columns are disabled (neither global nor targetable). Columns
+// with an explicit Fields entry are left untouched (explicit wins).
 func (c Config) effectiveSearch(cols []metaquery.Column) search.Config {
-	if len(c.Searchable) == 0 {
+	if len(c.Searchable) == 0 && len(c.Targetable) == 0 {
 		return c.Config
 	}
-	allow := make(map[string]bool, len(c.Searchable))
-	for _, s := range c.Searchable {
-		allow[strings.ToLower(s)] = true
-	}
+	global := lowerSet(c.Searchable)
+	targeted := lowerSet(c.Targetable)
 	fields := make(map[string]search.Field, len(cols))
 	maps.Copy(fields, c.Config.Fields)
 	for _, col := range cols {
 		if _, explicit := fields[col.Name]; explicit {
 			continue
 		}
-		f := search.Field{Scope: search.ScopeTargeted}
-		if allow[strings.ToLower(col.Name)] {
-			f.Scope = search.ScopeGlobal
+		switch key := strings.ToLower(col.Name); {
+		case global[key]:
+			fields[col.Name] = search.Field{Scope: search.ScopeGlobal}
+		case targeted[key]:
+			fields[col.Name] = search.Field{Scope: search.ScopeTargeted}
+		default:
+			fields[col.Name] = search.Field{Disable: true}
 		}
-		fields[col.Name] = f
 	}
 	return search.Config{Fields: fields, Named: c.Config.Named}
+}
+
+func lowerSet(xs []string) map[string]bool {
+	if len(xs) == 0 {
+		return nil
+	}
+	m := make(map[string]bool, len(xs))
+	for _, x := range xs {
+		m[strings.ToLower(x)] = true
+	}
+	return m
 }
 
 func (c Config) defPageSize() int {
@@ -200,7 +218,7 @@ func Run[T any](ctx context.Context, b *metaquery.Builder, req Request, cfg Conf
 	if err != nil {
 		return Response[T]{}, err
 	}
-	out := Response[T]{Data: res.Data, Meta: res.Meta, Rendered: rendered}
+	out := Response[T]{Data: res.Data, Rendered: rendered}
 	if out.Data == nil {
 		out.Data = []T{}
 	}

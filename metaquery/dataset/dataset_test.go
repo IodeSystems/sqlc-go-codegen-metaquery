@@ -134,15 +134,43 @@ func TestShape_SearchableAllowlist(t *testing.T) {
 	}
 }
 
-func TestShape_SearchableStillTargetable(t *testing.T) {
-	// A column excluded from free-text is still reachable via field:value.
+func TestShape_SearchableIsHardAllowlist(t *testing.T) {
+	// A column absent from Searchable/Targetable is not searchable by any path:
+	// bio:hello must not filter bio. The unknown target falls back to a global
+	// value search on the allowed column (name), per the DSL.
 	b := metaquery.Wrap(sampleQuery())
 	if _, err := Shape(b, Request{Search: "bio:hello"}, Config{Searchable: []string{"name"}}); err != nil {
 		t.Fatal(err)
 	}
 	sql, args, _ := b.Build()
-	if !strings.Contains(sql, `"bio" ILIKE`) || len(args) != 1 {
-		t.Fatalf("bio:hello should target bio: %s args=%v", sql, args)
+	if strings.Contains(sql, `"bio"`) {
+		t.Fatalf("bio must not be targetable: %s", sql)
+	}
+	if !strings.Contains(sql, `"name" ILIKE`) || len(args) != 1 || args[0] != "%hello%" {
+		t.Fatalf("bio:hello should fall back to global search on name: %s args=%v", sql, args)
+	}
+}
+
+func TestShape_Targetable(t *testing.T) {
+	// bio is targeted-only: bio:hello targets bio, but a bare term does not.
+	cfg := Config{Searchable: []string{"name"}, Targetable: []string{"bio"}}
+
+	b := metaquery.Wrap(sampleQuery())
+	if _, err := Shape(b, Request{Search: "bio:hello"}, cfg); err != nil {
+		t.Fatal(err)
+	}
+	sql, _, _ := b.Build()
+	if !strings.Contains(sql, `"bio" ILIKE`) {
+		t.Fatalf("bio:hello should target bio: %s", sql)
+	}
+
+	b2 := metaquery.Wrap(sampleQuery())
+	if _, err := Shape(b2, Request{Search: "hello"}, cfg); err != nil {
+		t.Fatal(err)
+	}
+	sql2, _, _ := b2.Build()
+	if strings.Contains(sql2, `"bio"`) {
+		t.Fatalf("targeted-only bio must not match a bare term: %s", sql2)
 	}
 }
 
