@@ -253,7 +253,13 @@ No redline2 API/UI change — `DataSetRequest.search`/`partition` already exist.
    and searches the value across global columns).
 4. Time-kind default (no operator) — eq on a date? **Deferred to phase 3** (time
    columns are currently not searchable by default; overridable via `Search`).
-5. Conformance: `search_test.go` has Go golden tests covering the spec table.
-   Still open: port the full Kotlin `DataSetBuilderTest` corpus for a true
-   cross-language suite (the .g4 drift check + shared grammar already guarantee
-   parse-level fidelity).
+5. Conformance: `conformance_test.go` ports the Kotlin `SearchParser` test
+   corpus verbatim. **Parity: all realistic inputs identical** (targeting,
+   commas/spaces/groups, apostrophes/quotes, `!`/`!!a` negation+escape,
+   searchRendered auto-escape). One documented divergence: a search of *only*
+   `:` — Kotlin escapes it to `\:`; antlr4-go single-token-deletes it during
+   Sync (no virtual dispatch to intercept + unexported ATN internals), yielding
+   an empty search. Pathological + harmless. Fixes made for parity: override
+   `RecoverInline` (Go silently inserts missing tokens where Kotlin throws), and
+   use a bool escape-signal instead of a `pos<0` sentinel (a NoViableAlt at
+   offset 0 legitimately yields pos -1).
