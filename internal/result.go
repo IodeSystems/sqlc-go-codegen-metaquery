@@ -93,6 +93,10 @@ func buildStructs(req *plugin.GenerateRequest, options *opts.Options) []Struct {
 				if options.EmitJsonTags {
 					tags["json"] = JSONTagName(column.Name, options)
 				}
+				// @derived: this generated field's source of truth is a schema column.
+				// Lets a consumer (poly-lsp-mcp) follow the edge to the migration that
+				// defines the column instead of guessing the field↔column mapping.
+				tags["derived"] = table.Rel.Name + "." + column.Name
 				addExtraGoStructTags(tags, req, options, column)
 				s.Fields = append(s.Fields, Field{
 					Name:    StructName(column.Name, options),
@@ -406,6 +410,12 @@ func columnsToStruct(req *plugin.GenerateRequest, options *opts.Options, name st
 		}
 		if options.EmitJsonTags {
 			tags["json"] = JSONTagName(tagName, options)
+		}
+		// @derived: when sqlc resolved this query column to a base table column, record
+		// the edge so a consumer can reach the migration that defines it. Computed /
+		// aliased columns (no single source table) are left unannotated.
+		if c.Column != nil && c.Column.Table != nil && c.Column.Table.Name != "" {
+			tags["derived"] = c.Column.Table.Name + "." + c.Column.Name
 		}
 		addExtraGoStructTags(tags, req, options, c.Column)
 		f := Field{
