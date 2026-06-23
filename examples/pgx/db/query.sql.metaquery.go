@@ -144,6 +144,10 @@ ORDER BY name`,
 	},
 }
 
+// WARNING: ListAuthors ends in a top-level ORDER BY. Wrapping re-applies
+// ordering at runtime, so .ApplyOrder(...) produces a doubled, nested sort
+// that can defeat index use. Drop ORDER BY from the query and order via
+// .ApplyOrder(...) instead. See benchmark/README.md.
 // WrapListAuthors returns a metaquery.Builder over MetaListAuthors, pre-bound with typed arguments.
 func WrapListAuthors() *metaquery.Builder {
 	return metaquery.Wrap(&MetaListAuthors)
@@ -179,6 +183,10 @@ ORDER BY created_at DESC`,
 	},
 }
 
+// WARNING: ListPosts ends in a top-level ORDER BY. Wrapping re-applies
+// ordering at runtime, so .ApplyOrder(...) produces a doubled, nested sort
+// that can defeat index use. Drop ORDER BY from the query and order via
+// .ApplyOrder(...) instead. See benchmark/README.md.
 // WrapListPosts returns a metaquery.Builder over MetaListPosts, pre-bound with typed arguments.
 func WrapListPosts() *metaquery.Builder {
 	return metaquery.Wrap(&MetaListPosts)
@@ -220,6 +228,10 @@ ORDER BY p.created_at DESC`,
 	},
 }
 
+// WARNING: ListPostsWithAuthor ends in a top-level ORDER BY. Wrapping re-applies
+// ordering at runtime, so .ApplyOrder(...) produces a doubled, nested sort
+// that can defeat index use. Drop ORDER BY from the query and order via
+// .ApplyOrder(...) instead. See benchmark/README.md.
 // WrapListPostsWithAuthor returns a metaquery.Builder over MetaListPostsWithAuthor, pre-bound with typed arguments.
 func WrapListPostsWithAuthor() *metaquery.Builder {
 	return metaquery.Wrap(&MetaListPostsWithAuthor)

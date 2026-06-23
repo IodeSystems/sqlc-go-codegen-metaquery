@@ -2,6 +2,7 @@ package golang
 
 import (
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 
@@ -31,6 +32,16 @@ func renderMetaQueries(queries []Query, source, engine string, options *opts.Opt
 		}
 		renderMetaQuery(&sb, q, dialect)
 		if level >= emitWrap && wrappableCmd(q.Cmd) {
+			if hasTopLevelOrderBy(q.SQL) {
+				// sqlc swallows process-plugin stderr, so the warning lives in
+				// the generated code where it is always visible and reviewable.
+				// log.Printf is a belt for `sqlc generate --verbose`.
+				renderOrderByWarning(&sb, q.MethodName)
+				log.Printf("metaquery: query %q ends in a top-level ORDER BY. "+
+					"Wrapping re-applies ordering at runtime; the doubled, nested sort "+
+					"can defeat index use (see benchmark/README.md). Drop ORDER BY from "+
+					"the query and order via .ApplyOrder(...) instead.", q.MethodName)
+			}
 			renderMetaWrapper(&sb, q)
 		}
 		if level >= emitCols {
@@ -92,6 +103,109 @@ func wrappableCmd(cmd string) bool {
 		return true
 	}
 	return false
+}
+
+// hasTopLevelOrderBy reports whether sql contains an ORDER BY clause at
+// parenthesis depth 0 — i.e. the outermost statement's own ordering. Because
+// metaquery wraps the whole query as a CTE and re-applies ordering at runtime,
+// a top-level ORDER BY produces a doubled nested sort (see benchmark/README.md).
+// String literals, quoted identifiers, and comments are skipped so an
+// "order by" inside them or inside a subquery doesn't trip the check.
+func hasTopLevelOrderBy(sql string) bool {
+	s := sql
+	depth := 0
+	for i := 0; i < len(s); i++ {
+		c := s[i]
+		switch c {
+		case '\'', '"': // string literal / quoted identifier — skip to its close
+			q := c
+			i++
+			for i < len(s) {
+				if s[i] == q {
+					if i+1 < len(s) && s[i+1] == q { // doubled quote = escaped
+						i++
+					} else {
+						break
+					}
+				}
+				i++
+			}
+		case '-': // line comment
+			if i+1 < len(s) && s[i+1] == '-' {
+				for i < len(s) && s[i] != '\n' {
+					i++
+				}
+			}
+		case '/': // block comment
+			if i+1 < len(s) && s[i+1] == '*' {
+				i += 2
+				for i+1 < len(s) && !(s[i] == '*' && s[i+1] == '/') {
+					i++
+				}
+				i++
+			}
+		case '(':
+			depth++
+		case ')':
+			if depth > 0 {
+				depth--
+			}
+		default:
+			if depth == 0 && (c == 'o' || c == 'O') && matchOrderBy(s, i) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// matchOrderBy reports whether s has the keyword sequence "order" <ws> "by" at
+// position i, bounded by non-identifier characters on both sides.
+func matchOrderBy(s string, i int) bool {
+	if i > 0 && isIdentByte(s[i-1]) {
+		return false
+	}
+	j := i
+	if !hasWordFold(s, j, "order") {
+		return false
+	}
+	j += len("order")
+	if j >= len(s) || !isSpaceByte(s[j]) {
+		return false
+	}
+	for j < len(s) && isSpaceByte(s[j]) {
+		j++
+	}
+	if !hasWordFold(s, j, "by") {
+		return false
+	}
+	j += len("by")
+	return j >= len(s) || !isIdentByte(s[j])
+}
+
+func hasWordFold(s string, i int, word string) bool {
+	if i+len(word) > len(s) {
+		return false
+	}
+	return strings.EqualFold(s[i:i+len(word)], word)
+}
+
+func isIdentByte(b byte) bool {
+	return b == '_' || (b >= '0' && b <= '9') || (b >= 'a' && b <= 'z') || (b >= 'A' && b <= 'Z')
+}
+
+func isSpaceByte(b byte) bool {
+	return b == ' ' || b == '\t' || b == '\n' || b == '\r' || b == '\f' || b == '\v'
+}
+
+// renderOrderByWarning emits a comment above a Wrap func whose source query
+// ends in a top-level ORDER BY (the doubled-sort footgun; see Performance in
+// the README).
+func renderOrderByWarning(sb *strings.Builder, method string) {
+	fmt.Fprintf(sb, "// WARNING: %s ends in a top-level ORDER BY. Wrapping re-applies\n", method)
+	sb.WriteString("// ordering at runtime, so .ApplyOrder(...) produces a doubled, nested sort\n")
+	sb.WriteString("// that can defeat index use. Drop ORDER BY from the query and order via\n")
+	sb.WriteString("// .ApplyOrder(...) instead. See benchmark/README.md.\n")
 }
 
 // renderMetaWrapper emits `func Wrap<Name>(...) *metaquery.Builder { ... }`
