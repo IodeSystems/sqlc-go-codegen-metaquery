@@ -10,17 +10,17 @@ import (
 )
 
 type Author struct {
-	ID        int64          `db:"id" json:"id"`
-	Name      string         `db:"name" json:"name"`
-	Bio       sql.NullString `db:"bio" json:"bio"`
-	CreatedAt time.Time      `db:"created_at" json:"created_at"`
+	ID        int64          `db:"id" derived:"authors.id" json:"id"`
+	Name      string         `db:"name" derived:"authors.name" json:"name"`
+	Bio       sql.NullString `db:"bio" derived:"authors.bio" json:"bio"`
+	CreatedAt time.Time      `db:"created_at" derived:"authors.created_at" json:"created_at"`
 }
 
 type Post struct {
-	ID        int64          `db:"id" json:"id"`
-	AuthorID  int64          `db:"author_id" json:"author_id"`
-	Title     string         `db:"title" json:"title"`
-	Body      sql.NullString `db:"body" json:"body"`
-	Views     int64          `db:"views" json:"views"`
-	CreatedAt time.Time      `db:"created_at" json:"created_at"`
+	ID        int64          `db:"id" derived:"posts.id" json:"id"`
+	AuthorID  int64          `db:"author_id" derived:"posts.author_id" json:"author_id"`
+	Title     string         `db:"title" derived:"posts.title" json:"title"`
+	Body      sql.NullString `db:"body" derived:"posts.body" json:"body"`
+	Views     int64          `db:"views" derived:"posts.views" json:"views"`
+	CreatedAt time.Time      `db:"created_at" derived:"posts.created_at" json:"created_at"`
 }

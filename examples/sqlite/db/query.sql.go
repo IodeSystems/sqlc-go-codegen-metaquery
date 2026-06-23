@@ -16,8 +16,8 @@ INSERT INTO authors (name, bio) VALUES (?, ?) RETURNING id, name, bio, created_a
 `
 
 type CreateAuthorParams struct {
-	Name string         `db:"name" json:"name"`
-	Bio  sql.NullString `db:"bio" json:"bio"`
+	Name string         `db:"name" derived:"authors.name" json:"name"`
+	Bio  sql.NullString `db:"bio" derived:"authors.bio" json:"bio"`
 }
 
 func (q *Queries) CreateAuthor(ctx context.Context, arg CreateAuthorParams) (Author, error) {
@@ -39,10 +39,10 @@ RETURNING id, author_id, title, body, views, created_at
 `
 
 type CreatePostParams struct {
-	AuthorID int64          `db:"author_id" json:"author_id"`
-	Title    string         `db:"title" json:"title"`
-	Body     sql.NullString `db:"body" json:"body"`
-	Views    int64          `db:"views" json:"views"`
+	AuthorID int64          `db:"author_id" derived:"posts.author_id" json:"author_id"`
+	Title    string         `db:"title" derived:"posts.title" json:"title"`
+	Body     sql.NullString `db:"body" derived:"posts.body" json:"body"`
+	Views    int64          `db:"views" derived:"posts.views" json:"views"`
 }
 
 func (q *Queries) CreatePost(ctx context.Context, arg CreatePostParams) (Post, error) {
@@ -181,13 +181,13 @@ ORDER BY p.created_at DESC
 `
 
 type ListPostsWithAuthorRow struct {
-	ID         int64          `db:"id" json:"id"`
-	AuthorID   int64          `db:"author_id" json:"author_id"`
-	Title      string         `db:"title" json:"title"`
-	Body       sql.NullString `db:"body" json:"body"`
-	Views      int64          `db:"views" json:"views"`
-	CreatedAt  time.Time      `db:"created_at" json:"created_at"`
-	AuthorName string         `db:"author_name" json:"author_name"`
+	ID         int64          `db:"id" derived:"posts.id" json:"id"`
+	AuthorID   int64          `db:"author_id" derived:"posts.author_id" json:"author_id"`
+	Title      string         `db:"title" derived:"posts.title" json:"title"`
+	Body       sql.NullString `db:"body" derived:"posts.body" json:"body"`
+	Views      int64          `db:"views" derived:"posts.views" json:"views"`
+	CreatedAt  time.Time      `db:"created_at" derived:"posts.created_at" json:"created_at"`
+	AuthorName string         `db:"author_name" derived:"authors.author_name" json:"author_name"`
 }
 
 func (q *Queries) ListPostsWithAuthor(ctx context.Context) ([]ListPostsWithAuthorRow, error) {
