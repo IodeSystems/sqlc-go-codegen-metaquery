@@ -5,7 +5,7 @@ go 1.25.0
 require (
 	github.com/antlr4-go/antlr/v4 v4.13.1
 	github.com/fatih/structtag v1.2.0
-	github.com/google/go-cmp v0.6.0
+	github.com/google/go-cmp v0.7.0
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/sqlc-dev/plugin-sdk-go v1.23.0
