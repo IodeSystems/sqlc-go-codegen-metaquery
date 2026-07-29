@@ -9,7 +9,7 @@ require (
 	github.com/jackc/pgx/v5 v5.10.0
 	github.com/jinzhu/inflection v1.0.0
 	github.com/sqlc-dev/plugin-sdk-go v1.23.0
-	modernc.org/sqlite v1.54.0
+	modernc.org/sqlite v1.55.0
 )
 
 require (
