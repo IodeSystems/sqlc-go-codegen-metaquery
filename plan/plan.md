@@ -118,3 +118,20 @@ Constraints:
 - Where should the runtime package live? Same module makes iteration easy but
   forces users to import the plugin repo. For now keep it in this repo under
   `metaquery/`; if awkward, extract later.
+
+## Known issues
+
+Detail lives in `plan/issues/`; these are one-liners so they are discoverable from
+here (they were not before).
+
+- [0001](issues/0001-response-embeds-internal-meta.md) — response embeds internal meta.
+- [0002](issues/0002-searchable-allowlist-still-targetable.md) — `Searchable` gated
+  global terms but not `field:` targeting. **Resolved** (hard allowlist).
+- [0003](issues/0003-multi-arg-unnest-rejected.md) — `unnest`: multi-arg is rejected
+  outright, and **single-arg silently boxes the result column to `interface{}`**. The
+  second is the one worth fixing — the boxing already happens with no warning, so the
+  preferred fix (warn on an unresolved polymorphic return, box it `any`) is mostly adding
+  the warning. **Two caveats before starting:** the multi-arg rejection is in sqlc CORE,
+  before this plugin is invoked, so a warning cannot be added from here; and there is no
+  multi-arg `unnest` row in `pg_proc` to copy — it is a grammar special case, so "add the
+  signature" would invent an entry PG does not have.
