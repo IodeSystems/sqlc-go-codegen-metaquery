@@ -249,7 +249,7 @@ func renderMetaCols(sb *strings.Builder, q Query, options *opts.Options) {
 	}
 	sb.WriteString("}{\n")
 	for i, c := range cols {
-		fmt.Fprintf(sb, "\t%s: metaquery.%s(%q),\n", fieldNames[i], columnKindCtor(c.GoType), c.OriginalName)
+		fmt.Fprintf(sb, "\t%s: metaquery.%s(%q),\n", fieldNames[i], columnKindCtor(c.GoType), colRefName(c))
 	}
 	sb.WriteString("}\n")
 }
@@ -283,6 +283,23 @@ func columnKindCtor(goType string) string {
 // colFieldName is the Go field name used for a column inside the generated
 // Cols struct. Uses sqlc's existing StructName so the field names align
 // with the sqlc-generated model structs (ID, CreatedAt, AuthorID, ...).
+// colRefName is the name a caller must use to REFER to this column — the query's OUTPUT name
+// (the alias), falling back to the original when the query does not alias it.
+//
+// ⚠ This must be the alias, not OriginalName. The wrapper wraps the query as a subquery, so only
+// output names are in scope; and Builder.lookupColumn matches Name OR OriginalName and takes the
+// first hit. Emitting OriginalName therefore made the accessors both wrong and AMBIGUOUS: for
+// `SELECT p.name AS program_name, r.name AS region_name`, both ProgramName and RegionName rendered
+// as "name", and RegionName silently resolved to program_name — the wrong column, with no error.
+// colFieldName already derives the Go field name from c.Name; this keeps the emitted string in step
+// with it.
+func colRefName(c metaCol) string {
+	if c.Name != "" {
+		return c.Name
+	}
+	return c.OriginalName
+}
+
 func colFieldName(c metaCol, options *opts.Options) string {
 	name := c.Name
 	if name == "" {
@@ -298,9 +315,9 @@ func colFieldName(c metaCol, options *opts.Options) string {
 //   - no args:               params="",                 callArgs=""
 //   - single scalar arg:     params="id int64",         callArgs="id"
 //   - multi-param (flat):    params="name string, bio pgtype.Text",
-//                            callArgs="name, bio"
+//     callArgs="name, bio"
 //   - struct param (emit):   params="arg CreateAuthorParams",
-//                            callArgs="arg.Name, arg.Bio"
+//     callArgs="arg.Name, arg.Bio"
 func wrapperPieces(q Query) (string, string) {
 	if q.Arg.isEmpty() {
 		return "", ""
@@ -540,8 +557,8 @@ func renderMetaArg(sb *strings.Builder, a metaArg) {
 
 // aggAnnotation holds a parsed `-- metaquery:agg <Name> <ops...>` directive.
 type aggAnnotation struct {
-	Name string   // e.g. "CountedGrouped"
-	Ops  []aggOp  // ordered operations
+	Name string  // e.g. "CountedGrouped"
+	Ops  []aggOp // ordered operations
 }
 
 type aggOp struct {
