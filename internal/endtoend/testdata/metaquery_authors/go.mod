@@ -3,7 +3,7 @@ module github.com/iodesystems/sqlc-go-codegen-metaquery/internal/endtoend/testda
 go 1.25.0
 
 require (
-	github.com/iodesystems/sqlc-go-codegen-metaquery v1.1.1
+	github.com/iodesystems/sqlc-go-codegen-metaquery v1.7.0
 	github.com/jackc/pgx/v5 v5.10.0
 )
 
