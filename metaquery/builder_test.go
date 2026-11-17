@@ -417,6 +417,51 @@ func TestValidateFilter_RawExprPassthrough(t *testing.T) {
 	}
 }
 
+// complexBody carries a query body the naive wrapping logic could mangle:
+// nested parens (a subquery), a string literal, and a comment. The CTE wrap
+// must emit it byte-for-byte inside WITH __q AS (...) and put user
+// constraints only on the wrapping SELECT.
+var complexBody = &Query{
+	Name: "SearchNames",
+	Cmd:  ":many",
+	SQL:  "SELECT id, (SELECT count(*) FROM aliases a WHERE a.author_id = authors.id) AS alias_count, 'literal (with) parens' AS tag FROM authors WHERE name LIKE 'a%' -- keep me\nORDER BY id",
+	Columns: []Column{
+		{Name: "id", OriginalName: "id", GoType: "int64", DBType: "int8", NotNull: true},
+		{Name: "alias_count", OriginalName: "alias_count", GoType: "int64", DBType: "int8", NotNull: true},
+		{Name: "tag", OriginalName: "tag", GoType: "string", DBType: "text", NotNull: true},
+	},
+}
+
+func TestBuilder_OriginalSQLSurvivesCTEVerbatim(t *testing.T) {
+	sql, args, err := Wrap(complexBody).
+		Where("id", ">", 5).
+		Limit(10).
+		Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(args) != 1 || args[0] != 5 {
+		t.Fatalf("args = %v", args)
+	}
+	// The body, byte for byte, inside the CTE — no re-parsing, no
+	// normalization of the parens, the literal, or the comment.
+	if !strings.Contains(sql, complexBody.SQL) {
+		t.Fatalf("original SQL not present verbatim in:\n%s", sql)
+	}
+	// It sits inside WITH __q AS (...).
+	if !strings.Contains(sql, "WITH __q AS (\n"+complexBody.SQL+"\n)") {
+		t.Fatalf("original SQL not intact inside CTE in:\n%s", sql)
+	}
+	// Constraints land on the wrapping SELECT, after the CTE.
+	outer := sql[strings.Index(sql, ")\nSELECT")+2:]
+	if !strings.Contains(outer, `"id" > $1`) {
+		t.Fatalf("filter missing from outer SELECT: %q", outer)
+	}
+	if !strings.Contains(outer, "LIMIT 10") {
+		t.Fatalf("limit missing from outer SELECT: %q", outer)
+	}
+}
+
 // ---- SQLite dialect ----
 
 var listAuthorsSQLite = &Query{
