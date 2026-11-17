@@ -9,7 +9,7 @@ import (
 )
 
 type Author struct {
-	ID   int64
-	Name string
-	Bio  pgtype.Text
+	ID   int64       `derived:"authors.id"`
+	Name string      `derived:"authors.name"`
+	Bio  pgtype.Text `derived:"authors.bio"`
 }

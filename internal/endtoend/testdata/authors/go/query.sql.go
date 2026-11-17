@@ -21,8 +21,8 @@ RETURNING id, name, bio
 `
 
 type CreateAuthorParams struct {
-	Name string
-	Bio  pgtype.Text
+	Name string      `derived:"authors.name"`
+	Bio  pgtype.Text `derived:"authors.bio"`
 }
 
 func (q *Queries) CreateAuthor(ctx context.Context, arg CreateAuthorParams) (Author, error) {
