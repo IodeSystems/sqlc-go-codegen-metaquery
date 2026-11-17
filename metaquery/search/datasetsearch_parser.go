@@ -535,7 +535,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // ISimpleTermContext is an interface to support dynamic dispatch.
@@ -713,7 +712,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // IAndTermContext is an interface to support dynamic dispatch.
@@ -859,7 +857,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // IOrTermContext is an interface to support dynamic dispatch.
@@ -1045,7 +1042,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // ITermContext is an interface to support dynamic dispatch.
@@ -1281,7 +1277,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // ITermTargetContext is an interface to support dynamic dispatch.
@@ -1377,7 +1372,6 @@ func (p *DataSetSearchParser) TermTarget() (localctx ITermTargetContext) {
 		}
 	}
 
-errorExit:
 	if p.HasError() {
 		v := p.GetError()
 		localctx.SetException(v)
@@ -1387,7 +1381,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // ITermValueGroupContext is an interface to support dynamic dispatch.
@@ -1841,7 +1834,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // ISimpleValueContext is an interface to support dynamic dispatch.
@@ -1935,7 +1927,6 @@ func (p *DataSetSearchParser) SimpleValue() (localctx ISimpleValueContext) {
 		p.TermValue()
 	}
 
-errorExit:
 	if p.HasError() {
 		v := p.GetError()
 		localctx.SetException(v)
@@ -1945,7 +1936,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // ITermValueContext is an interface to support dynamic dispatch.
@@ -2079,7 +2069,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // IAndValueContext is an interface to support dynamic dispatch.
@@ -2219,7 +2208,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // IOrValueContext is an interface to support dynamic dispatch.
@@ -2396,7 +2384,6 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
 
 // IUnprotectedOrValueContext is an interface to support dynamic dispatch.
@@ -2513,5 +2500,4 @@ errorExit:
 	}
 	p.ExitRule()
 	return localctx
-	goto errorExit // Trick to prevent compiler error if the label is not used
 }
