@@ -213,6 +213,87 @@ func TestApply_LikeWildcardsEscaped(t *testing.T) {
 	}
 }
 
+// TestApply_CompoundSearchBindsEveryValue proves a search combining all five
+// parts — a bare term, a field:value target, a comparison, a wildcard and a
+// negation — compiles to a bound, parameterized WHERE: every search value is
+// present only in the args slice, never interpolated into the SQL text.
+func TestApply_CompoundSearchBindsEveryValue(t *testing.T) {
+	const q = `smith name:smi* id:>25 !inactive`
+	b := metaquery.Wrap(sampleQuery())
+	if _, err := Apply(b, q, Config{}); err != nil {
+		t.Fatalf("Apply(%q): %v", q, err)
+	}
+	sql, args, err := b.Build()
+	if err != nil {
+		t.Fatalf("Build after %q: %v", q, err)
+	}
+	const marker = "FROM __q WHERE "
+	i := strings.Index(sql, marker)
+	if i < 0 {
+		t.Fatalf("no WHERE emitted:\n%s", sql)
+	}
+	where := sql[i+len(marker):]
+
+	// Every user value reaches the driver as a bound parameter.
+	//
+	//   term 1 "smith"     global  -> name ILIKE $1, bio ILIKE $2
+	//   term 2 "smi*"      targeted-> name ILIKE $3
+	//   term 3 "id:>25"    targeted-> id > $4
+	//   term 4 "!inactive" global  -> NOT (name ILIKE $5 OR bio ILIKE $6)
+	//
+	// Under the default text predicate the * is not a LIKE metacharacter, so
+	// it reaches the driver verbatim inside the contains pattern; under a
+	// WildcardFn-configured field it would bind a glob pattern instead. Either
+	// way the value is bound, never interpolated.
+	eqArgs(t, args, []any{"%smith%", "%smith%", `%smi*%`, int64(25), `%inactive%`, `%inactive%`})
+
+	// The SQL is parameterized: one placeholder per arg, none unbound.
+	if n := strings.Count(where, "$"); n != len(args) {
+		t.Fatalf("want %d $-placeholders, got %d:\n%s", len(args), n, where)
+	}
+	if strings.Contains(where, "?") {
+		t.Fatalf("unbound ? placeholder in %q", where)
+	}
+
+	// Zero string interpolation: no raw search value appears in the SQL text;
+	// the values live only in args, and the wildcard * is bound, not inlined.
+	for _, raw := range []string{"smith", "smi", "inactive", "*"} {
+		if strings.Contains(where, raw) {
+			t.Fatalf("value %q interpolated into SQL: %s", raw, where)
+		}
+	}
+
+	// Each of the five parts is present in the compiled WHERE.
+	if !strings.Contains(where, `"id" > $4`) {
+		t.Fatalf("comparison not compiled: %s", where)
+	}
+	if !strings.Contains(where, `"name" ILIKE $3`) {
+		t.Fatalf("wildcard not compiled to ILIKE: %s", where)
+	}
+	if !strings.Contains(where, "NOT (") {
+		t.Fatalf("negation not compiled: %s", where)
+	}
+	// The bare term ANDs against the negation as its own global group.
+	if !strings.Contains(where, `("name" ILIKE $1`) {
+		t.Fatalf("bare term not compiled: %s", where)
+	}
+}
+
+// TestApply_BareTermMatchesGlobalText proves a term with no field prefix
+// matches the global text across the configured text columns (both name and
+// bio), and that the typed columns are untouched.
+func TestApply_BareTermMatchesGlobalText(t *testing.T) {
+	where, args := whereOf(t, "zeta", Config{})
+	want := `("name" ILIKE $1 ESCAPE '\' OR "bio" ILIKE $2 ESCAPE '\')`
+	if where != want {
+		t.Fatalf("bare term must span the global text columns:\n got %s\nwant %s", where, want)
+	}
+	eqArgs(t, args, []any{"%zeta%", "%zeta%"})
+	if strings.Contains(where, `"id"`) || strings.Contains(where, "is_admin") {
+		t.Fatalf("typed columns must not join a global term: %s", where)
+	}
+}
+
 // --- Parser-level conformance ---
 
 func TestParse_QuotedPreservesSpaces(t *testing.T) {
