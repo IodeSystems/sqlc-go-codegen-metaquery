@@ -270,6 +270,32 @@ func TestIntegration_ShowColumns(t *testing.T) {
 	}
 }
 
+func TestIntegration_CompoundSearchExecutes(t *testing.T) {
+	db := openDB(t)
+	// One search string combining all five DSL parts — a bare term, a
+	// field:value target, a comparison, a wildcard and a negation — fed in as
+	// the request field and executed end-to-end against SQLite:
+	//
+	//   alice            bare global term, AND
+	//   score:>=90       targeted comparison, AND
+	//   name:Alic*       targeted wildcard (name configured with WildcardFn), AND
+	//   !status:pending  targeted negation, AND
+	//
+	// alice → rows 1,3,4 (Alice, Alice Cooper, Carol's bio);
+	// score:>=90 → rows 1,4; name:Alic* → rows 1,3; !status:pending → rows 1,2,3,5.
+	// AND of all four → row 1 (Alice) only: Alice Cooper fails on score,
+	// Carol fails on name:Alic*, Bob and 50% off fail on score.
+	cfg := dataset.Config{}
+	cfg.Config.Fields = map[string]search.Field{"name": {Search: search.WildcardFn()}}
+	res := run(t, db, dataset.Request{Search: `alice score:>=90 name:Alic* !status:pending`, ShowCounts: true}, cfg)
+	if got := names(res.Data); len(got) != 1 || got[0] != "Alice" {
+		t.Fatalf("compound search → %v, want [Alice]", got)
+	}
+	if res.Count.InQuery != 1 {
+		t.Fatalf("InQuery: %+v", res.Count)
+	}
+}
+
 func TestIntegration_HardAllowlistNotTargetable(t *testing.T) {
 	db := openDB(t)
 	// org_id excluded from the allowlist: org_id:1 must not filter by org_id;
