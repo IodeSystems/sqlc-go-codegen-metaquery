@@ -316,6 +316,90 @@ func TestRun_NoColumnsWithoutFlag(t *testing.T) {
 	}
 }
 
+func TestRun_FullRequestOneShapedResponse(t *testing.T) {
+	// One request carrying every flag must produce one response whose five
+	// parts are all present and mutually consistent: Data, the inQuery count,
+	// the inPartition count, the Columns with capabilities, and Rendered.
+	b := metaquery.Wrap(sampleQuery())
+	scan := func(_ context.Context, b *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
+		if _, _, err := b.Build(); err != nil { // Shape must have applied
+			return nil, err
+		}
+		m := b.Meta()
+		if m.Pagination != nil {
+			m.Pagination.Total = 7
+		}
+		return &metaquery.TypedResult[userView]{
+			Data: []userView{{ID: 1, Name: "john"}, {ID: 2, Name: "jane"}},
+			Meta: m,
+		}, nil
+	}
+	req := Request{
+		Page:        1,
+		PageSize:    10,
+		Ordering:    []Order{{Field: "name", Order: "DESC"}},
+		Search:      "john",
+		Partition:   "is_admin:true",
+		ShowCounts:  true,
+		ShowColumns: true,
+	}
+	out, err := Run(context.Background(), b, req, Config{Orderable: []string{"name"}}, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Data.
+	if len(out.Data) != 2 || out.Data[0].Name != "john" || out.Data[1].Name != "jane" {
+		t.Fatalf("data: %+v", out.Data)
+	}
+	// inQuery and inPartition counts.
+	if out.Count == nil {
+		t.Fatal("count missing despite ShowCounts")
+	}
+	if out.Count.InQuery != 7 || out.Count.InPartition != 7 {
+		t.Fatalf("counts: %+v", out.Count)
+	}
+	// Columns with capabilities, consistent with the ordering in the same request.
+	if len(out.Columns) != 4 {
+		t.Fatalf("want 4 columns, got %d", len(out.Columns))
+	}
+	by := map[string]ColumnInfo{}
+	for _, c := range out.Columns {
+		by[c.Name] = c
+	}
+	if n := by["name"]; !n.Searchable || !n.Orderable || n.Sort != "DESC" || n.Title != "Name" {
+		t.Fatalf("name: %+v", n)
+	}
+	if a := by["is_admin"]; !a.Searchable || a.Global || a.Orderable {
+		t.Fatalf("is_admin: %+v", a)
+	}
+	// Rendered, carrying the normalized search and partition.
+	if out.Rendered.Search != "john" || out.Rendered.Partition != "is_admin:true" {
+		t.Fatalf("rendered: %+v", out.Rendered)
+	}
+}
+
+func TestRun_PageSizeClampedToConfiguredMax(t *testing.T) {
+	b := metaquery.Wrap(sampleQuery())
+	scan := func(_ context.Context, _ *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
+		return &metaquery.TypedResult[userView]{}, nil
+	}
+	// Request far over the configured maximum: the built SQL must carry
+	// exactly the maximum, not the built-in default and not the requested size.
+	out, err := Run(context.Background(), b,
+		Request{Page: 3, PageSize: 10_000}, Config{MaxPageSize: 50}, scan)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = out
+	sql, _, err := b.Build()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(sql, "LIMIT 50 OFFSET 150") {
+		t.Fatalf("should clamp to the configured max of 50 at page 3: %s", sql)
+	}
+}
+
 func TestRunWithPartitionCount(t *testing.T) {
 	newB := func() *metaquery.Builder { return metaquery.Wrap(sampleQuery()) }
 	scan := func(_ context.Context, b *metaquery.Builder) (*metaquery.TypedResult[userView], error) {
