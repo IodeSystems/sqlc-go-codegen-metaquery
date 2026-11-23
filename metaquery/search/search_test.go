@@ -213,6 +213,63 @@ func TestApply_LikeWildcardsEscaped(t *testing.T) {
 	}
 }
 
+// TestApply_WildcardBindsLikePercent proves a search term containing the
+// wildcard character `*` compiles to a SQL LIKE predicate in which `*` is
+// translated to the LIKE `%` wildcard (match any characters) and the
+// translated pattern is bound as a parameter — the `*` itself never reaches
+// the SQL text. Both dialects: Postgres uses ILIKE with $N placeholders,
+// SQLite uses LIKE with ?N. The wildcard translation is WildcardFn's
+// contract; the default contains predicate deliberately treats `*` as a
+// literal, so the field is configured with it.
+func TestApply_WildcardBindsLikePercent(t *testing.T) {
+	cfg := Config{Fields: map[string]Field{"name": {Search: WildcardFn()}}}
+	cases := []struct {
+		dialect     metaquery.Dialect
+		op          string
+		expr        string
+		wantPattern string
+	}{
+		{metaquery.DialectPostgres, "ILIKE", `"name" ILIKE $1 ESCAPE '\'`, "smi%"},
+		{metaquery.DialectSQLite, "LIKE", `"name" LIKE ?1 ESCAPE '\'`, "smi%"},
+	}
+	for _, c := range cases {
+		q := sampleQuery()
+		q.Dialect = c.dialect
+		b := metaquery.Wrap(q)
+		if _, err := Apply(b, "name:smi*", cfg); err != nil {
+			t.Fatalf("%s Apply: %v", c.dialect, err)
+		}
+		sql, args, err := b.Build()
+		if err != nil {
+			t.Fatalf("%s Build: %v", c.dialect, err)
+		}
+		const marker = "FROM __q WHERE "
+		i := strings.Index(sql, marker)
+		if i < 0 {
+			t.Fatalf("%s: no WHERE emitted:\n%s", c.dialect, sql)
+		}
+		where := sql[i+len(marker):]
+		// The operator is dialect-correct and the pattern is bound, not
+		// interpolated: no `*` and no `%` anywhere in the SQL text.
+		if !strings.Contains(where, c.expr) {
+			t.Fatalf("%s: want %s in WHERE, got %s", c.dialect, c.expr, where)
+		}
+		if !strings.Contains(where, c.op) {
+			t.Fatalf("%s: %s predicate missing: %s", c.dialect, c.op, where)
+		}
+		if strings.Contains(where, "*") {
+			t.Fatalf("%s: raw * reached the SQL text: %s", c.dialect, where)
+		}
+		if strings.Contains(where, "%") {
+			t.Fatalf("%s: LIKE %% pattern interpolated into the SQL text: %s", c.dialect, where)
+		}
+		// The translated pattern is bound as the (only) parameter.
+		if len(args) != 1 || args[0] != c.wantPattern {
+			t.Fatalf("%s: pattern not bound as a parameter: %#v, want %q", c.dialect, args, c.wantPattern)
+		}
+	}
+}
+
 // TestApply_CompoundSearchBindsEveryValue proves a search combining all five
 // parts — a bare term, a field:value target, a comparison, a wildcard and a
 // negation — compiles to a bound, parameterized WHERE: every search value is
