@@ -94,14 +94,14 @@ search/sort/paginate/facet endpoint with a Google-style search DSL.
 
 <!-- release:begin -->
 
-### Latest release — v1.1.1
+### Latest release — v1.7.1
 
 ```yaml
 plugins:
 - name: metaquery
   wasm:
-    url: https://github.com/IodeSystems/sqlc-go-codegen-metaquery/releases/download/v1.1.1/sqlc-go-codegen-metaquery.wasm
-    sha256: feb4d49fa9cc10945685b888790e4467aad8828b7bb43ad5711b99e45e8e7f52
+    url: https://github.com/IodeSystems/sqlc-go-codegen-metaquery/releases/download/v1.7.1/sqlc-go-codegen-metaquery.wasm
+    sha256: 9406f9d1cd9cbf8fdcdb7b4510c19b0467192d6158cdcbd413d2307be38200b3
 ```
 
 <!-- release:end -->
