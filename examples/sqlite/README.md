@@ -8,7 +8,7 @@ and a tiny CLI that mirrors `examples/pgx` against SQLite.
 
 ## Prerequisites
 
-- Go 1.21+
+- Go 1.26+
 - [`sqlc`](https://sqlc.dev) on `$PATH`
 - Parent repo has built the plugin binary: `make -C ../.. bin/sqlc-go-codegen-metaquery`
 
